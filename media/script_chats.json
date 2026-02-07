@@ -1,0 +1,230 @@
+[
+  {
+    "id": "b307bf81-fcfb-4bb8-b640-e8b3a71ea580",
+    "title": "Hi",
+    "created_at": "2026-01-31T16:57:47.189196+00:00",
+    "updated_at": "2026-01-31T16:57:47.189715+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-01-31T16:57:47.189582+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-01-31T16:57:47.189713+00:00"
+      }
+    ]
+  },
+  {
+    "id": "fe9050f3-e8a7-4c3c-b555-12188593ff4f",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-01-31T16:57:47.193894+00:00",
+    "updated_at": "2026-01-31T16:57:47.194239+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-01-31T16:57:47.194072+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-01-31T16:57:47.194237+00:00"
+      }
+    ]
+  },
+  {
+    "id": "cb1c624a-c128-48ae-a3f6-a46368fab8d1",
+    "title": "Hi",
+    "created_at": "2026-01-31T17:00:55.999130+00:00",
+    "updated_at": "2026-01-31T17:00:55.999925+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-01-31T17:00:55.999746+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-01-31T17:00:55.999922+00:00"
+      }
+    ]
+  },
+  {
+    "id": "a2991a82-b017-4e60-99b9-f6537e4b0699",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-01-31T17:00:56.004681+00:00",
+    "updated_at": "2026-01-31T17:00:56.005030+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-01-31T17:00:56.004860+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-01-31T17:00:56.005028+00:00"
+      }
+    ]
+  },
+  {
+    "id": "e339724f-c3fd-45c1-a4eb-3f75cbd583a4",
+    "title": "Hi",
+    "created_at": "2026-02-01T18:22:18.934394+00:00",
+    "updated_at": "2026-02-01T18:22:18.935138+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-02-01T18:22:18.934929+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:22:18.935135+00:00"
+      }
+    ]
+  },
+  {
+    "id": "d4792789-5ab2-4820-8048-5ec3881e515c",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-02-01T18:22:18.939410+00:00",
+    "updated_at": "2026-02-01T18:22:18.939789+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-02-01T18:22:18.939594+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:22:18.939787+00:00"
+      }
+    ]
+  },
+  {
+    "id": "8b80ad09-05a5-48d8-96ef-272d9ed5d981",
+    "title": "Hi",
+    "created_at": "2026-02-01T18:26:03.125345+00:00",
+    "updated_at": "2026-02-01T18:26:03.126052+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-02-01T18:26:03.125830+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:26:03.126050+00:00"
+      }
+    ]
+  },
+  {
+    "id": "28c19cc1-3e35-4986-b6f9-f7e7e4aca2d2",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-02-01T18:26:03.130852+00:00",
+    "updated_at": "2026-02-01T18:26:03.131461+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-02-01T18:26:03.131131+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:26:03.131459+00:00"
+      }
+    ]
+  },
+  {
+    "id": "877dc308-8a85-4083-bbda-fd627b103660",
+    "title": "Hi",
+    "created_at": "2026-02-01T18:27:04.284410+00:00",
+    "updated_at": "2026-02-01T18:27:04.285194+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-02-01T18:27:04.284901+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:27:04.285192+00:00"
+      }
+    ]
+  },
+  {
+    "id": "4b590ccf-a271-4b5d-b172-ae0bb14f50f7",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-02-01T18:27:04.289869+00:00",
+    "updated_at": "2026-02-01T18:27:04.290544+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-02-01T18:27:04.290202+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-01T18:27:04.290542+00:00"
+      }
+    ]
+  },
+  {
+    "id": "ec46650e-92e7-4119-aca4-d3bba78d784e",
+    "title": "Hi",
+    "created_at": "2026-02-02T22:26:56.463200+00:00",
+    "updated_at": "2026-02-02T22:26:56.464146+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "ts": "2026-02-02T22:26:56.463879+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-02T22:26:56.464144+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2923b86b-02fc-4e7b-a329-aa995bc7b820",
+    "title": "Hello, help me write a sci-fi short film.",
+    "created_at": "2026-02-02T22:26:56.468611+00:00",
+    "updated_at": "2026-02-02T22:26:56.469128+00:00",
+    "summary": "",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, help me write a sci-fi short film.",
+        "ts": "2026-02-02T22:26:56.468866+00:00"
+      },
+      {
+        "role": "assistant",
+        "content": "AI unavailable: set OPENAI_API_KEY to chat.",
+        "ts": "2026-02-02T22:26:56.469126+00:00"
+      }
+    ]
+  }
+]

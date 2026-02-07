@@ -1,0 +1,49 @@
+name: "\U0001F680 Feature request"
+description: Suggest an idea for Infinity Film Studio.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea—tell us what would improve your workflow.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What do you want to build?
+      placeholder: Export script drafts directly to Fountain format.
+    validations:
+      required: true
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use case
+      description: Describe the scenario that needs this.
+      placeholder: I draft shorts and need to import to Final Draft without copy/paste cleanup.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API shape, UI sketch, or workflow steps.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways you might solve this today.
+  - type: dropdown
+    id: surfaces
+    attributes:
+      label: Where should this live?
+      multiple: true
+      options:
+        - Web
+        - CLI
+        - Desktop (Tkinter)
+        - API only
+  - type: textarea
+    id: extras
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or prior art.

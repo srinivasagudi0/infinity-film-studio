@@ -1,0 +1,131 @@
+[
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "context": "SPEeed up the whole",
+    "suggestion": "To speed up the whole sequence effectively, try these edits:\n\n1. Trim down any pauses or lingering shots that don\u2019t add crucial information.\n2. Use faster cuts between scenes or angles, reducing shot lengths by about 20-30%.\n3. Apply jump cuts within longer actions to maintain momentum.\n4. Where appropriate, use quick crossfades or fast swipes to transition smoothly without slowing pacing.\n5. Remove or shorten establishing shots that aren\u2019t essential to the story.\n\nThese actions will make the sequence feel more dynamic and engaging without losing clarity."
+  },
+  {
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions."
+  },
+  {
+    "id": "4dfe7952633e4b90920438a856d2b4d3",
+    "type": "edit_suggestion",
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions.",
+    "timeline": {
+      "id": "27a69d898ed44e08a0f0ae206086688f",
+      "title": "AI Edit Suggestion",
+      "fps": 24.0,
+      "resolution": "1920x1080",
+      "segments": [
+        {
+          "label": "Suggestion",
+          "start": 0.0,
+          "end": 10.0,
+          "note": "Test edit context"
+        }
+      ],
+      "created_at": "2026-02-01T18:26:03.133899+00:00"
+    }
+  },
+  {
+    "id": "9b91d52eb8804924852f3e2a2342c743",
+    "type": "video_review",
+    "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-0/test_video_review_fallback_met0/clip.mp4",
+    "question": "Pacing ok?",
+    "metadata": {
+      "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-0/test_video_review_fallback_met0/clip.mp4"
+    },
+    "response": "AI unavailable: set OPENAI_API_KEY to review videos."
+  },
+  {
+    "id": "aefb45fe21dc4499ab5f8f8c4ea31238",
+    "type": "edit_suggestion",
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions.",
+    "timeline": {
+      "id": "c9c385991c084f8ea676d4f3741c91f4",
+      "title": "AI Edit Suggestion",
+      "fps": 24.0,
+      "resolution": "1920x1080",
+      "segments": [
+        {
+          "label": "Suggestion",
+          "start": 0.0,
+          "end": 10.0,
+          "note": "Test edit context"
+        }
+      ],
+      "created_at": "2026-02-01T18:27:04.293068+00:00"
+    }
+  },
+  {
+    "id": "44bf6679919d43948299df7c07028f03",
+    "type": "video_review",
+    "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-1/test_video_review_fallback_met0/clip.mp4",
+    "question": "Pacing ok?",
+    "metadata": {
+      "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-1/test_video_review_fallback_met0/clip.mp4"
+    },
+    "response": "AI unavailable: set OPENAI_API_KEY to review videos."
+  },
+  {
+    "id": "6ea614d2001046508e72efd31f2b7214",
+    "type": "edit_suggestion",
+    "context": "Test edit context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get edit suggestions.",
+    "timeline": {
+      "id": "658640ed78664141b03878cc4efcd6c0",
+      "title": "AI Edit Suggestion",
+      "fps": 24.0,
+      "resolution": "1920x1080",
+      "segments": [
+        {
+          "label": "Suggestion",
+          "start": 0.0,
+          "end": 10.0,
+          "note": "Test edit context"
+        }
+      ],
+      "created_at": "2026-02-02T22:26:56.471458+00:00"
+    }
+  },
+  {
+    "id": "bf6a254a75aa4e4eb9a89fa224590dc4",
+    "type": "video_review",
+    "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-0/test_video_review_fallback_met0/clip.mp4",
+    "question": "Pacing ok?",
+    "metadata": {
+      "file": "/private/var/folders/wy/rb_86lk53jvdrgx50815np280000gn/T/pytest-of-srinivasagudi/pytest-0/test_video_review_fallback_met0/clip.mp4"
+    },
+    "response": "AI unavailable: set OPENAI_API_KEY to review videos."
+  }
+]

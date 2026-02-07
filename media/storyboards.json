@@ -1,0 +1,74 @@
+[
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "context": "Wide set crater art down\n",
+    "suggestion": "Frame Description:\n\nComposition: The frame showcases a vast, wide-set crater, its rough edges spreading horizontally across the middle ground of the image. The foreground features jagged rocks and sparse alien vegetation, leading the viewer\u2019s eye toward the crater\u2019s expansive basin. In the distance, faint mountain ridges frame the horizon, emphasizing the crater\u2019s immense scale.\n\nCamera Angle: A high-angle wide shot from slightly above and to the side, looking down diagonally into the crater. This vantage point captures both the crater\u2019s depth and breadth, while including enough of the surrounding terrain to contextualize its isolation.\n\nLighting: Soft, diffused lighting from a low sun near the horizon casts long shadows across the crater\u2019s rim and the foreground rocks, enhancing texture and ruggedness. Warm golden tones mingle with cooler shadows, creating a balanced contrast that emphasizes the crater\u2019s vast emptiness.\n\nEmotional Tone: The scene evokes a sense of awe and quiet solitude\u2014majestic yet desolate. The wide framing and expansive view suggest both exploration and the unknown, inviting reflection on the scale of nature or an alien landscape\u2019s mystery."
+  },
+  {
+    "context": "Test frame context",
+    "suggestion": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions."
+  },
+  {
+    "id": "1919e1710b7a42d9b067725d3f325afb",
+    "title": "Test frame context",
+    "context": "Test frame context",
+    "description": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions.",
+    "camera": "",
+    "lighting": "",
+    "emotion": "",
+    "duration_seconds": null,
+    "tags": [],
+    "created_at": "2026-02-01T18:26:03.132767+00:00"
+  },
+  {
+    "id": "dea25b4db1984e639ddb4f2efa942d2d",
+    "title": "Test frame context",
+    "context": "Test frame context",
+    "description": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions.",
+    "camera": "",
+    "lighting": "",
+    "emotion": "",
+    "duration_seconds": null,
+    "tags": [],
+    "created_at": "2026-02-01T18:27:04.291817+00:00"
+  },
+  {
+    "id": "07ac0c4ae7ba4690ae8aca178631622f",
+    "title": "Test frame context",
+    "context": "Test frame context",
+    "description": "AI unavailable: set OPENAI_API_KEY to get storyboard suggestions.",
+    "camera": "",
+    "lighting": "",
+    "emotion": "",
+    "duration_seconds": null,
+    "tags": [],
+    "created_at": "2026-02-02T22:26:56.470317+00:00"
+  }
+]
