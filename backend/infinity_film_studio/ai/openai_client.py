@@ -14,10 +14,16 @@ class _DemoChat:
     """Lightweight demo stub that mimics `chat.completions.create`."""
 
     def __init__(self, message: str):
+        self.completions = _DemoCompletions(message)
+
+
+class _DemoCompletions:
+    """Imitates the `create(...)` callable under `chat.completions`."""
+
+    def __init__(self, message: str):
         self._message = message
 
-    def completions(self, *_args, **_kwargs):
-        # Mirror OpenAI SDK shape enough for downstream code/tests.
+    def create(self, *_args, **_kwargs):
         return {
             "choices": [{"message": {"role": "assistant", "content": self._message}}],
             "model": "demo-fallback",
