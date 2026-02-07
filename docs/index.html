@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Infinity Film Studio</title>
+
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: radial-gradient(circle at top, #0a0f1c 0%, #000 75%);
+      color: #7df9ff;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      letter-spacing: 0.08em;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      padding: 14px 32px;
+      font-size: 1rem;
+      font-weight: 600;
+      background: transparent;
+      border: 2px solid #7df9ff;
+      color: #7df9ff;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    button:hover {
+      background: #7df9ff;
+      color: #000;
+      transform: translateY(-2px);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>INFINITY<br>FILM STUDIO</h1>
+
+    <button onclick="launch()">
+      ▶ Launch App
+    </button>
+  </div>
+
+  <script>
+    function launch() {
+      window.open(
+        "https://infinity-film-studio-qzfbzj6zewnwtxb7whl7wr.streamlit.app/",
+        "_blank",
+        "noopener"
+      );
+    }
+  </script>
+</body>
+</html>
