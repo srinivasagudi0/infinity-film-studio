@@ -10,7 +10,17 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
-from .ai.openai_client import OpenAIClient
+# Support both package imports and direct script execution (e.g., `streamlit run`).
+try:  # pragma: no cover - exercised in runtime environments
+    from .ai.openai_client import OpenAIClient
+except ImportError:  # pragma: no cover
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.append(str(root))
+    from infinity_film_studio.ai.openai_client import OpenAIClient
 
 
 def create_app() -> Dict[str, Any]:
@@ -28,4 +38,3 @@ def create_app() -> Dict[str, Any]:
             "storyboard": {},
         },
     }
-
