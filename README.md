@@ -60,9 +60,24 @@ docker run --rm -p 8000:8000 --env-file .env infinity-film-studio
 ## Environment
 - `OPENAI_API_KEY` — optional; without it, responses are friendly fallbacks
 - `OPENAI_BASE_URL` — override OpenAI endpoint if needed
+- `OPENAI_API_KEY_FALLBACK` — optional legacy fallback key
+- `OPENAI_BASE_URL_FALLBACK` — optional legacy fallback endpoint
+- `OPENAI_MODEL_FALLBACK` — optional legacy fallback chat model override
+- `OPENAI_API_KEY_FALLBACK_<N>` — ordered fallback keys (`_1`, `_2`, ...) tried before offline mode
+- `OPENAI_BASE_URL_FALLBACK_<N>` — optional endpoint override for fallback slot `<N>`
+- `OPENAI_MODEL_FALLBACK_<N>` — optional chat model override for fallback slot `<N>`
 - `MEDIA_ROOT` / `TEMP_ROOT` — storage paths (default `./media`, `./tmp`)
 - `CORS_ORIGINS` — comma-separated origins (default `*`)
 - `LOG_LEVEL` — info/debug/warning/error (default `info`)
+
+Example Hack Club fallback using Gemini 3 Flash Preview:
+```env
+OPENAI_API_KEY_FALLBACK_2=your_hackclub_key
+OPENAI_BASE_URL_FALLBACK_2=https://ai.hackclub.com/proxy/v1
+OPENAI_MODEL_FALLBACK_2=google/gemini-3-flash-preview
+```
+
+Keep real keys in local `.env` or deployment secret managers only. `.env` is ignored by git in this repo.
 
 ## Notes
 - ffmpeg is installed in the Docker image; locally, installing `ffmpeg` + `ffmpeg-python` enables richer metadata.

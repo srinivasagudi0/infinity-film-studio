@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
     from openai import OpenAI  # type: ignore
@@ -56,35 +57,136 @@ class _DemoClient:
         self.embeddings = _DemoEmbeddings()
 
 
-class OpenAIClient:
-    """Thin wrapper around the OpenAI Python SDK with demo mode."""
+@dataclass(frozen=True)
+class _Provider:
+    """Provider configuration for a single OpenAI-compatible endpoint."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
-        self.api_key = api_key
-        self.base_url = base_url
-        self._client: Optional[OpenAI | _DemoClient] = None
+    api_key: str
+    base_url: str | None = None
+    chat_model_override: str | None = None
+
+
+class OpenAIClient:
+    """Thin wrapper around OpenAI-compatible providers with demo mode."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        fallback_configs: Sequence[Dict[str, str | None]] | None = None,
+    ):
+        self._providers = self._build_providers(api_key, base_url, fallback_configs)
+        self.api_key = self._providers[0].api_key if self._providers else None
+        self.base_url = self._providers[0].base_url if self._providers else base_url
+        self._clients: Dict[tuple[str, str | None], OpenAI] = {}
+        self._demo_client: Optional[_DemoClient] = None
+
+    @staticmethod
+    def _clean(value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    def _build_providers(
+        self,
+        api_key: str | None,
+        base_url: str | None,
+        fallback_configs: Sequence[Dict[str, str | None]] | None,
+    ) -> List[_Provider]:
+        providers: list[_Provider] = []
+        seen: set[tuple[str, str | None, str | None]] = set()
+
+        primary_key = self._clean(api_key)
+        if primary_key:
+            primary_base = self._clean(base_url)
+            provider = _Provider(api_key=primary_key, base_url=primary_base)
+            providers.append(provider)
+            seen.add((provider.api_key, provider.base_url, provider.chat_model_override))
+
+        for cfg in fallback_configs or []:
+            fallback_key = self._clean(cfg.get("api_key"))
+            if not fallback_key:
+                continue
+            fallback_base = self._clean(cfg.get("base_url"))
+            fallback_model = self._clean(cfg.get("chat_model_override"))
+            provider = _Provider(
+                api_key=fallback_key,
+                base_url=fallback_base,
+                chat_model_override=fallback_model,
+            )
+            marker = (provider.api_key, provider.base_url, provider.chat_model_override)
+            if marker in seen:
+                continue
+            providers.append(provider)
+            seen.add(marker)
+
+        return providers
+
+    def _get_demo_client(self) -> _DemoClient:
+        if not self._demo_client:
+            self._demo_client = _DemoClient("AI unavailable: set OPENAI_API_KEY for live responses.")
+        return self._demo_client
+
+    def _get_live_client(self, provider: _Provider) -> OpenAI:
+        if OpenAI is None:
+            raise RuntimeError("OpenAI SDK not installed. Run `pip install openai`.")
+        client_key = (provider.api_key, provider.base_url)
+        client = self._clients.get(client_key)
+        if not client:
+            client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+            self._clients[client_key] = client
+        return client
+
+    def _promote_provider(self, idx: int) -> None:
+        if idx <= 0:
+            return
+        provider = self._providers.pop(idx)
+        self._providers.insert(0, provider)
+        self.api_key = self._providers[0].api_key
+        self.base_url = self._providers[0].base_url
+
+    def _call_with_fallback(self, call: Callable[[Any, _Provider], Any]) -> Any:
+        if not self._providers:
+            return call(self._get_demo_client(), _Provider(api_key="", base_url=None))
+
+        last_error: Exception | None = None
+        for idx, provider in enumerate(self._providers):
+            try:
+                client = self._get_live_client(provider)
+                response = call(client, provider)
+                self._promote_provider(idx)
+                return response
+            except Exception as exc:  # pragma: no cover - runtime path
+                last_error = exc
+                continue
+
+        if last_error:
+            raise last_error
+        return call(self._get_demo_client(), _Provider(api_key="", base_url=None))
 
     @property
     def client(self) -> OpenAI | _DemoClient:
-        if not self._client:
-            if self.api_key:
-                if OpenAI is None:
-                    raise RuntimeError("OpenAI SDK not installed. Run `pip install openai`.")
-                self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-            else:
-                # Demo mode: deterministic stub to keep app usable without creds.
-                self._client = _DemoClient(
-                    "AI unavailable: set OPENAI_API_KEY for live responses."
-                )
-        return self._client
+        if not self._providers:
+            return self._get_demo_client()
+        return self._get_live_client(self._providers[0])
 
     def chat(self, messages: List[Dict[str, str]], model: str = "gpt-4.1-mini", **kwargs) -> Any:
-        """Call OpenAI chat/completions with provided messages or demo fallback."""
-        return self.client.chat.completions.create(messages=messages, model=model, **kwargs)
+        """Call provider chat endpoint with ordered API-key fallback."""
+
+        def _chat_call(client: Any, provider: _Provider) -> Any:
+            chosen_model = provider.chat_model_override or model
+            return client.chat.completions.create(messages=messages, model=chosen_model, **kwargs)
+
+        return self._call_with_fallback(_chat_call)
 
     def embeddings(self, inputs, model: str = "text-embedding-3-small", **kwargs) -> Any:
-        """Call OpenAI embeddings endpoint or return demo zero vectors."""
-        return self.client.embeddings.create(input=inputs, model=model, **kwargs)
+        """Call provider embeddings endpoint with ordered API-key fallback."""
+
+        def _embedding_call(client: Any, _provider: _Provider) -> Any:
+            return client.embeddings.create(input=inputs, model=model, **kwargs)
+
+        return self._call_with_fallback(_embedding_call)
 
 
 # EOF end of file
