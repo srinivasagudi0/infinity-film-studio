@@ -8,6 +8,7 @@ This app supports two modes:
 from __future__ import annotations
 
 import html
+import os
 import random
 import sys
 import textwrap
@@ -17,11 +18,18 @@ from typing import Any, Callable, Sequence
 
 import streamlit as st
 
+try:  # pragma: no cover - optional dependency at runtime
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
 # Ensure backend package is importable when running `streamlit run streamlit_app.py`.
 ROOT = Path(__file__).resolve().parent
 BACKEND_ROOT = ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+if load_dotenv is not None:  # pragma: no branch
+    load_dotenv(ROOT / ".env", override=False)
 
 from infinity_film_studio.app import create_app  # noqa: E402
 
@@ -109,6 +117,11 @@ STYLE_PRESETS = [
     },
 ]
 
+DEFAULT_CHAT_MODEL = os.getenv(
+    "OPENAI_DEFAULT_CHAT_MODEL",
+    "google/gemini-2.5-flash-lite-preview-09-2025",
+)
+
 
 @st.cache_resource
 def _get_ai_client() -> Any:
@@ -168,6 +181,23 @@ def _short_seed(seed: str) -> str:
     return " ".join(words[:4]) + "..."
 
 
+def _provider_name(api_key: str | None, base_url: str | None) -> str:
+    base = (base_url or "").lower()
+    if (api_key and api_key.startswith("sk-hc-")) or ("hackclub.com" in base):
+        return "Hack Club"
+    if "openai.com" in base or (api_key and api_key.startswith("sk-")):
+        return "OpenAI"
+    return "Custom"
+
+
+def _provider_chain_text(ai_client: Any) -> str:
+    providers = getattr(ai_client, "_providers", None) or []
+    if not providers:
+        return "Offline"
+    names = [_provider_name(getattr(p, "api_key", None), getattr(p, "base_url", None)) for p in providers]
+    return " -> ".join(names + ["Offline"])
+
+
 def _rerun() -> None:
     try:
         st.rerun()
@@ -186,7 +216,7 @@ def _init_state() -> None:
         "ifs_energy": 68,
         "ifs_pace": 57,
         "ifs_concept_idx": 0,
-        "ifs_model": "gpt-4.1-mini",
+        "ifs_model": DEFAULT_CHAT_MODEL,
         "ifs_temperature": 0.72,
         "ifs_frame_count": 6,
         "ifs_script_prompt": CONCEPT_SEEDS[0],
@@ -781,7 +811,7 @@ def _sidebar_controls() -> None:
     st.sidebar.caption(f"Preset tagline: {active_preset['tagline']}")
 
 
-def _top_section(demo_mode: bool) -> None:
+def _top_section(demo_mode: bool, ai_client: Any) -> None:
     mode_class = "demo" if demo_mode else "live"
     mode_text = "Demo Mode" if demo_mode else "Live AI Mode"
 
@@ -814,6 +844,7 @@ def _top_section(demo_mode: bool) -> None:
         )
 
     st.markdown(f"**Project:** `{st.session_state['ifs_project_title']}`")
+    st.markdown(f"**Provider order:** `{_provider_chain_text(ai_client)}`")
     st.markdown(f"**Active concept:** {concept}")
 
     metric_cols = st.columns(5)
@@ -895,7 +926,7 @@ def _script_tab(ai_client: Any, concept: str) -> None:
         focus = st.session_state["ifs_focus"]
         energy = st.session_state["ifs_energy"]
         pace = st.session_state["ifs_pace"]
-        model = st.session_state["ifs_model"].strip() or "gpt-4.1-mini"
+        model = st.session_state["ifs_model"].strip() or DEFAULT_CHAT_MODEL
         premise = st.session_state["ifs_script_prompt"]
         temperature = float(st.session_state["ifs_temperature"])
 
@@ -974,7 +1005,7 @@ def _storyboard_tab(ai_client: Any) -> None:
         style = st.session_state["ifs_camera_style"]
         palette = st.session_state["ifs_palette"]
         frame_count = int(st.session_state["ifs_frame_count"])
-        model = st.session_state["ifs_model"].strip() or "gpt-4.1-mini"
+        model = st.session_state["ifs_model"].strip() or DEFAULT_CHAT_MODEL
         scene = st.session_state["ifs_story_prompt"]
         temperature = float(st.session_state["ifs_temperature"])
 
@@ -1053,7 +1084,7 @@ def _edit_tab(ai_client: Any) -> None:
         objective = st.session_state["ifs_edit_objective"]
         energy = st.session_state["ifs_energy"]
         pace = st.session_state["ifs_pace"]
-        model = st.session_state["ifs_model"].strip() or "gpt-4.1-mini"
+        model = st.session_state["ifs_model"].strip() or DEFAULT_CHAT_MODEL
         temperature = float(st.session_state["ifs_temperature"])
 
         system_prompt = (
@@ -1123,7 +1154,7 @@ def _deck_tab(ai_client: Any) -> None:
 
     if generate:
         project = st.session_state["ifs_project_title"]
-        model = st.session_state["ifs_model"].strip() or "gpt-4.1-mini"
+        model = st.session_state["ifs_model"].strip() or DEFAULT_CHAT_MODEL
         temperature = float(st.session_state["ifs_temperature"])
         brief = _build_director_brief()
 
@@ -1243,7 +1274,7 @@ def main() -> None:
 
     # Render top controls first so their state updates happen before sidebar
     # widgets with the same keys are instantiated in this run.
-    _top_section(demo_mode)
+    _top_section(demo_mode, ai_client)
     _sidebar_controls()
 
     concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]

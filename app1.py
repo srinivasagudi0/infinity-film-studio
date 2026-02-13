@@ -7,12 +7,22 @@ Users can enable live generation by setting an API key in the sidebar.
 from __future__ import annotations
 
 import html
+import os
 import random
 import textwrap
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Sequence
 
 import streamlit as st
+
+try:  # pragma: no cover - optional dependency at runtime
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
+if load_dotenv is not None:  # pragma: no branch
+    load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 
 GENRES = ["Sci-Fi", "Thriller", "Drama", "Mystery", "Action", "Comedy"]
@@ -38,6 +48,13 @@ ISSUE_FLAGS = [
     "Confusing geography",
     "Weak ending impact",
 ]
+
+DEFAULT_CHAT_MODEL = (
+    os.getenv("OPENAI_DEFAULT_CHAT_MODEL", "google/gemini-2.5-flash-lite-preview-09-2025").strip()
+    or "google/gemini-2.5-flash-lite-preview-09-2025"
+)
+DEFAULT_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+DEFAULT_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://ai.hackclub.com/proxy/v1").strip()
 
 
 def seed_for(*parts: str) -> int:
@@ -309,10 +326,10 @@ def _init_state() -> None:
         "ifs1_palette": PALETTES[0],
         "ifs1_energy": 68,
         "ifs1_pace": 57,
-        "ifs1_live_enabled": False,
-        "ifs1_api_key": "",
-        "ifs1_base_url": "",
-        "ifs1_model": "gpt-4.1-mini",
+        "ifs1_live_enabled": bool(DEFAULT_API_KEY),
+        "ifs1_api_key": DEFAULT_API_KEY,
+        "ifs1_base_url": DEFAULT_BASE_URL,
+        "ifs1_model": DEFAULT_CHAT_MODEL,
         "ifs1_temperature": 0.7,
         "ifs1_script_output": "",
         "ifs1_storyboard_output": "",
@@ -495,7 +512,7 @@ def _sidebar() -> None:
             content, error = _call_live(
                 api_key=st.session_state["ifs1_api_key"].strip(),
                 base_url=st.session_state["ifs1_base_url"].strip(),
-                model=st.session_state["ifs1_model"].strip() or "gpt-4.1-mini",
+                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt="You are a concise assistant.",
                 user_prompt="Reply with: connection ok",
                 temperature=0.2,
@@ -526,7 +543,7 @@ def _top() -> None:
         <div class="hero-card">
           <span class="mode-pill {mode_class}">{mode_label}</span>
           <h2>Infinity Film Studio - Offline First Console</h2>
-          <p>Runs fully offline by default. Add an API key in the sidebar to switch to live generation.</p>
+          <p>Works offline, and uses live generation automatically when API credentials are set.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -608,7 +625,7 @@ def _script_tab() -> None:
             live_content, error = _call_live(
                 api_key=st.session_state["ifs1_api_key"].strip(),
                 base_url=st.session_state["ifs1_base_url"].strip(),
-                model=st.session_state["ifs1_model"].strip() or "gpt-4.1-mini",
+                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=float(st.session_state["ifs1_temperature"]),
@@ -674,7 +691,7 @@ def _storyboard_tab() -> None:
             live_content, error = _call_live(
                 api_key=st.session_state["ifs1_api_key"].strip(),
                 base_url=st.session_state["ifs1_base_url"].strip(),
-                model=st.session_state["ifs1_model"].strip() or "gpt-4.1-mini",
+                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=float(st.session_state["ifs1_temperature"]),
@@ -744,7 +761,7 @@ def _edit_tab() -> None:
             live_content, error = _call_live(
                 api_key=st.session_state["ifs1_api_key"].strip(),
                 base_url=st.session_state["ifs1_base_url"].strip(),
-                model=st.session_state["ifs1_model"].strip() or "gpt-4.1-mini",
+                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=float(st.session_state["ifs1_temperature"]),

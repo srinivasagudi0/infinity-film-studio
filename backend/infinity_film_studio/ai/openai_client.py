@@ -10,6 +10,9 @@ try:
 except ImportError:  # pragma: no cover - handled at runtime
     OpenAI = None
 
+DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash-lite-preview-09-2025"
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+
 
 class _DemoChat:
     """Lightweight demo stub that mimics `chat.completions.create`."""
@@ -74,10 +77,16 @@ class OpenAIClient:
         api_key: str | None = None,
         base_url: str | None = None,
         fallback_configs: Sequence[Dict[str, str | None]] | None = None,
+        default_chat_model: str | None = None,
+        default_embedding_model: str | None = None,
     ):
         self._providers = self._build_providers(api_key, base_url, fallback_configs)
         self.api_key = self._providers[0].api_key if self._providers else None
         self.base_url = self._providers[0].base_url if self._providers else base_url
+        self.default_chat_model = self._clean(default_chat_model) or DEFAULT_CHAT_MODEL
+        self.default_embedding_model = (
+            self._clean(default_embedding_model) or DEFAULT_EMBEDDING_MODEL
+        )
         self._clients: Dict[tuple[str, str | None], OpenAI] = {}
         self._demo_client: Optional[_DemoClient] = None
 
@@ -171,20 +180,21 @@ class OpenAIClient:
             return self._get_demo_client()
         return self._get_live_client(self._providers[0])
 
-    def chat(self, messages: List[Dict[str, str]], model: str = "gpt-4.1-mini", **kwargs) -> Any:
+    def chat(self, messages: List[Dict[str, str]], model: str | None = None, **kwargs) -> Any:
         """Call provider chat endpoint with ordered API-key fallback."""
 
         def _chat_call(client: Any, provider: _Provider) -> Any:
-            chosen_model = provider.chat_model_override or model
+            chosen_model = provider.chat_model_override or model or self.default_chat_model
             return client.chat.completions.create(messages=messages, model=chosen_model, **kwargs)
 
         return self._call_with_fallback(_chat_call)
 
-    def embeddings(self, inputs, model: str = "text-embedding-3-small", **kwargs) -> Any:
+    def embeddings(self, inputs, model: str | None = None, **kwargs) -> Any:
         """Call provider embeddings endpoint with ordered API-key fallback."""
 
         def _embedding_call(client: Any, _provider: _Provider) -> Any:
-            return client.embeddings.create(input=inputs, model=model, **kwargs)
+            chosen_model = model or self.default_embedding_model
+            return client.embeddings.create(input=inputs, model=chosen_model, **kwargs)
 
         return self._call_with_fallback(_embedding_call)
 
