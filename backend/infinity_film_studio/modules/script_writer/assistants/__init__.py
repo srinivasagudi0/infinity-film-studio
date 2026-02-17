@@ -1,1 +1,1 @@
-"""AI assistants for script writer."""
+"""Script writer assistants."""

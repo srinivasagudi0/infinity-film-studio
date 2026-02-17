@@ -1,9 +1,9 @@
-"""Central OpenAI client wrapper with demo fallbacks."""
+"""OpenAI-compatible client wrapper with live and demo modes."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Sequence
 
 try:
     from openai import OpenAI  # type: ignore
@@ -22,7 +22,7 @@ class _DemoChat:
 
 
 class _DemoCompletions:
-    """Imitates the `create(...)` callable under `chat.completions`."""
+    """Mimics the `chat.completions.create(...)` call."""
 
     def __init__(self, message: str):
         self._message = message
@@ -76,7 +76,7 @@ class OpenAIClient:
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        fallback_configs: Sequence[Dict[str, str | None]] | None = None,
+        fallback_configs: Sequence[dict[str, str | None]] | None = None,
         default_chat_model: str | None = None,
         default_embedding_model: str | None = None,
     ):
@@ -87,8 +87,8 @@ class OpenAIClient:
         self.default_embedding_model = (
             self._clean(default_embedding_model) or DEFAULT_EMBEDDING_MODEL
         )
-        self._clients: Dict[tuple[str, str | None], OpenAI] = {}
-        self._demo_client: Optional[_DemoClient] = None
+        self._clients: dict[tuple[str, str | None], OpenAI] = {}
+        self._demo_client: _DemoClient | None = None
 
     @staticmethod
     def _clean(value: str | None) -> str | None:
@@ -101,8 +101,8 @@ class OpenAIClient:
         self,
         api_key: str | None,
         base_url: str | None,
-        fallback_configs: Sequence[Dict[str, str | None]] | None,
-    ) -> List[_Provider]:
+        fallback_configs: Sequence[dict[str, str | None]] | None,
+    ) -> list[_Provider]:
         providers: list[_Provider] = []
         seen: set[tuple[str, str | None, str | None]] = set()
 
@@ -180,7 +180,7 @@ class OpenAIClient:
             return self._get_demo_client()
         return self._get_live_client(self._providers[0])
 
-    def chat(self, messages: List[Dict[str, str]], model: str | None = None, **kwargs) -> Any:
+    def chat(self, messages: list[dict[str, str]], model: str | None = None, **kwargs) -> Any:
         """Call provider chat endpoint with ordered API-key fallback."""
 
         def _chat_call(client: Any, provider: _Provider) -> Any:
@@ -197,6 +197,3 @@ class OpenAIClient:
             return client.embeddings.create(input=inputs, model=chosen_model, **kwargs)
 
         return self._call_with_fallback(_embedding_call)
-
-
-# EOF end of file

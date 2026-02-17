@@ -1,8 +1,8 @@
-"""Interactive Streamlit UI for Infinity Film Studio.
+"""Main Streamlit UI for Infinity Film Studio.
 
-This app supports two modes:
-- Live mode: uses OPENAI_API_KEY through backend OpenAI client wrapper.
-- Demo mode: generates deterministic offline outputs with no external calls.
+Two runtime modes are supported:
+- Live mode calls the configured API provider chain.
+- Demo mode returns deterministic offline output.
 """
 
 from __future__ import annotations
@@ -228,7 +228,7 @@ def _init_state() -> None:
         "ifs_deck_output": "",
         "ifs_history": [],
         "ifs_preset": STYLE_PRESETS[0]["name"],
-        "ifs_status_line": "Ready for next generation.",
+        "ifs_status_line": "Ready.",
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)

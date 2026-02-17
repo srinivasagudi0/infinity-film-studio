@@ -1,4 +1,4 @@
-"""Smoke test placeholder for backend app."""
+"""Basic app construction smoke test."""
 
 from infinity_film_studio.app import create_app
 

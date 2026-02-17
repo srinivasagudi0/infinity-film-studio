@@ -1,1 +1,1 @@
-"""Video Editor module package."""
+"""Video editor module."""

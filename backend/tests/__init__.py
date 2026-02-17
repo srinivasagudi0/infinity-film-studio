@@ -1,1 +1,1 @@
-"""Test suite package placeholder."""
+"""Backend tests package."""

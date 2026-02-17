@@ -1,1 +1,1 @@
-"""AI client package."""
+"""AI helpers and clients."""

@@ -1,1 +1,1 @@
-"""AI assistants for storyboard."""
+"""Storyboard assistants."""

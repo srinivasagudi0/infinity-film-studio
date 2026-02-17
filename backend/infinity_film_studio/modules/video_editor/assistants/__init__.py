@@ -1,1 +1,1 @@
-"""AI assistants for video editor."""
+"""Video editor assistants."""

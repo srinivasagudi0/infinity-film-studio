@@ -1,4 +1,4 @@
-"""Behavior tests for ordered API fallback in OpenAIClient."""
+"""Tests for ordered API fallback in OpenAIClient."""
 
 from infinity_film_studio.ai import openai_client as openai_client_module
 from infinity_film_studio.ai.openai_client import OpenAIClient
@@ -68,4 +68,3 @@ def test_chat_uses_fallback_provider_and_model_override(monkeypatch):
     assert response["model"] == "google/gemini-3-flash-preview"
     assert client.api_key == "hackclub-key"
     assert client.base_url == "https://ai.hackclub.com/proxy/v1"
-

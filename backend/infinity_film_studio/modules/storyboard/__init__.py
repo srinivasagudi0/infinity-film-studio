@@ -1,1 +1,1 @@
-"""Storyboard module package."""
+"""Storyboard module."""

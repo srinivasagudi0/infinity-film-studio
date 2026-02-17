@@ -1,4 +1,4 @@
-"""Provider-priority tests for Hack Club -> OpenAI -> Offline behavior."""
+"""Checks provider priority: Hack Club -> OpenAI -> Offline."""
 
 from infinity_film_studio.app import create_app
 
@@ -18,8 +18,7 @@ def test_hackclub_is_prioritized_before_openai(monkeypatch):
     for name in tracked:
         monkeypatch.delenv(name, raising=False)
 
-    # Intentionally configure OpenAI in primary slot and Hack Club in fallback slot.
-    # App wiring should reorder to Hack Club first.
+    # Put OpenAI first on purpose; wiring should reorder Hack Club ahead of it.
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-primary")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("OPENAI_API_KEY_FALLBACK_1", "sk-hc-secondary")
@@ -32,4 +31,3 @@ def test_hackclub_is_prioritized_before_openai(monkeypatch):
     assert providers[0].api_key.startswith("sk-hc-")
     assert providers[1].api_key.startswith("sk-")
     assert not providers[1].api_key.startswith("sk-hc-")
-

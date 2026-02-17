@@ -1,3 +1,3 @@
-"""Infinity Film Studio backend package initializer."""
+"""Backend package root."""
 
 __version__ = "0.1.0"

@@ -1,7 +1,7 @@
-"""Offline-first Streamlit app with optional live OpenAI mode.
+"""Alternative Streamlit app with optional live API mode.
 
-Defaults to local deterministic generation with zero external dependencies.
-Users can enable live generation by setting an API key in the sidebar.
+By default it runs fully offline and deterministic.
+Turn on live mode from the sidebar when an API key is available.
 """
 
 from __future__ import annotations
@@ -335,7 +335,7 @@ def _init_state() -> None:
         "ifs1_storyboard_output": "",
         "ifs1_edit_output": "",
         "ifs1_history": [],
-        "ifs1_status": "Ready.",
+        "ifs1_status": "Ready to generate.",
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)

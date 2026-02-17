@@ -167,7 +167,7 @@ export default function App() {
           <div className="brand-mark">IF</div>
           <div>
             <p className="eyebrow">Infinity Film Studio</p>
-            <h1>Director Console</h1>
+            <h1>Director Desk</h1>
           </div>
         </div>
         <button className="ghost-btn" onClick={cycleConcept}>
@@ -178,26 +178,26 @@ export default function App() {
       <section className="hero-grid reveal" style={{ "--delay": "90ms" }}>
         <div className="hero-copy">
           <p className="hero-tag">Creative Pipeline</p>
-          <h2>Make every frame intentional before production starts.</h2>
+          <h2>Block scenes fast before cameras roll.</h2>
           <p>
-            Build script logic, map camera language, and pressure-test edits in
-            one interactive workspace.
+            Write the beats, plan the shots, and stress-test the cut in one
+            place.
           </p>
           <div className="hero-actions">
             <button className="primary-btn" onClick={rotateStyle}>
-              Switch Visual Style
+              Change Visual Style
             </button>
             <button
               className="secondary-btn"
               onClick={() => setEnergy((value) => Math.min(100, value + 7))}
             >
-              Boost Energy
+              Nudge Energy
             </button>
           </div>
         </div>
 
         <aside className="card stat-panel">
-          <p className="kicker">Session Snapshot</p>
+          <p className="kicker">Current Session</p>
           <h3>{activeStyle.name}</h3>
           <div className="stat-grid">
             <div>
@@ -222,7 +222,7 @@ export default function App() {
 
       <section className="workflow reveal" style={{ "--delay": "140ms" }}>
         <div className="section-head">
-          <h3>Production Flow</h3>
+          <h3>Workflow</h3>
           <p>Select a stage to inspect active insights.</p>
         </div>
 
@@ -263,7 +263,7 @@ export default function App() {
 
       <section className="lab reveal" style={{ "--delay": "190ms" }}>
         <div className="section-head">
-          <h3>Creative Lab</h3>
+          <h3>Control Room</h3>
           <p>Adjust cinematic behavior with live controls.</p>
         </div>
 
@@ -326,7 +326,7 @@ export default function App() {
               <span>{activeStep.title}</span>
             </div>
             <button className="link-btn" onClick={cycleConcept}>
-              Generate Another Prompt
+              Try Another Prompt
             </button>
           </article>
         </div>
@@ -334,8 +334,8 @@ export default function App() {
 
       <section className="projects reveal" style={{ "--delay": "240ms" }}>
         <div className="section-head">
-          <h3>Recent Concepts</h3>
-          <p>Fast entry points back into current productions.</p>
+          <h3>Recent Projects</h3>
+          <p>Jump back into current work with one click.</p>
         </div>
 
         <div className="project-grid">

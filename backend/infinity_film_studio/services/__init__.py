@@ -1,1 +1,1 @@
-"""Service layer package placeholder."""
+"""Service layer package."""

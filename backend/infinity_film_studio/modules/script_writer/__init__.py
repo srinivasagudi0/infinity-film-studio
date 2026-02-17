@@ -1,1 +1,1 @@
-"""Script Writer module package."""
+"""Script writer module."""

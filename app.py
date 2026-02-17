@@ -1,7 +1,7 @@
-"""Entry point for Streamlit (cloud/local).
+"""Streamlit launcher.
 
-This delegates to `streamlit_app.py` so both files work:
-- `streamlit run app.py` (Streamlit Cloud default)
+This keeps both entry commands working:
+- `streamlit run app.py`
 - `streamlit run streamlit_app.py`
 """
 
