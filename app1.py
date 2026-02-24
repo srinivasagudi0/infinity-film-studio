@@ -24,6 +24,61 @@ except ImportError:  # pragma: no cover
 if load_dotenv is not None:  # pragma: no branch
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
+SECRET_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_DEFAULT_CHAT_MODEL",
+    "OPENAI_API_KEY_FALLBACK",
+    "OPENAI_BASE_URL_FALLBACK",
+    "OPENAI_MODEL_FALLBACK",
+    "OPENAI_FALLBACK_OPENAI_MODEL",
+)
+
+
+def _hydrate_env_from_streamlit_secrets() -> None:
+    """Populate env vars from Streamlit Secrets so credentials stay out of the UI."""
+    try:
+        secrets_obj = st.secrets
+    except Exception:
+        return
+
+    try:
+        secrets = secrets_obj.to_dict()  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            secrets = dict(secrets_obj)
+        except Exception:
+            return
+
+    openai_block = secrets.get("openai")
+    if isinstance(openai_block, dict):
+        mapping = {
+            "api_key": "OPENAI_API_KEY",
+            "base_url": "OPENAI_BASE_URL",
+            "default_chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
+            "fallback_openai_model": "OPENAI_FALLBACK_OPENAI_MODEL",
+        }
+        for secret_key, env_key in mapping.items():
+            value = openai_block.get(secret_key)
+            if isinstance(value, str) and value.strip() and not os.getenv(env_key):
+                os.environ[env_key] = value.strip()
+
+    for key in SECRET_ENV_KEYS:
+        value = secrets.get(key)
+        if isinstance(value, str) and value.strip() and not os.getenv(key):
+            os.environ[key] = value.strip()
+
+    for key, value in secrets.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
+            continue
+        if key.startswith(
+            ("OPENAI_API_KEY_FALLBACK_", "OPENAI_BASE_URL_FALLBACK_", "OPENAI_MODEL_FALLBACK_")
+        ) and not os.getenv(key):
+            os.environ[key] = value.strip()
+
+
+_hydrate_env_from_streamlit_secrets()
+
 
 GENRES = ["Sci-Fi", "Thriller", "Drama", "Mystery", "Action", "Comedy"]
 TONES = ["Hopeful", "Dark", "Bittersweet", "Urgent", "Whimsical"]
@@ -60,6 +115,18 @@ DEFAULT_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://ai.hackclub.com/proxy/v
 def seed_for(*parts: str) -> int:
     text = "|".join(parts).strip().lower()
     return abs(hash(text)) % (2**31)
+
+
+def _runtime_api_key() -> str:
+    return (os.getenv("OPENAI_API_KEY", "") or "").strip()
+
+
+def _runtime_base_url() -> str:
+    return (os.getenv("OPENAI_BASE_URL", DEFAULT_BASE_URL) or DEFAULT_BASE_URL).strip()
+
+
+def _has_runtime_credentials() -> bool:
+    return bool(_runtime_api_key())
 
 
 def _extract_content(resp: Any) -> str:
@@ -326,9 +393,7 @@ def _init_state() -> None:
         "ifs1_palette": PALETTES[0],
         "ifs1_energy": 68,
         "ifs1_pace": 57,
-        "ifs1_live_enabled": bool(DEFAULT_API_KEY),
-        "ifs1_api_key": DEFAULT_API_KEY,
-        "ifs1_base_url": DEFAULT_BASE_URL,
+        "ifs1_live_enabled": _has_runtime_credentials(),
         "ifs1_model": DEFAULT_CHAT_MODEL,
         "ifs1_temperature": 0.7,
         "ifs1_script_output": "",
@@ -498,20 +563,26 @@ def _offline_edit_notes(pacing: str, objective: str, issues: Sequence[str], ener
 def _sidebar() -> None:
     st.sidebar.markdown("## Runtime Mode")
     st.sidebar.checkbox("Enable Live API", key="ifs1_live_enabled")
-    st.sidebar.text_input("API Key", type="password", key="ifs1_api_key")
-    st.sidebar.text_input("Base URL (optional)", key="ifs1_base_url")
+    if _has_runtime_credentials():
+        st.sidebar.success("Live credentials detected from environment / Streamlit Secrets.")
+        st.sidebar.caption(f"Endpoint: {_runtime_base_url()}")
+    else:
+        st.sidebar.warning(
+            "No `OPENAI_API_KEY` found. Add it to Streamlit Secrets or `.env` to enable live mode."
+        )
+    st.sidebar.caption("API values are intentionally removed from the UI.")
     st.sidebar.text_input("Model", key="ifs1_model")
     st.sidebar.slider("Creativity", 0.1, 1.2, key="ifs1_temperature")
 
     if st.sidebar.button("Test API Connection", use_container_width=True):
         if not st.session_state["ifs1_live_enabled"]:
             st.session_state["ifs1_status"] = "Live API is disabled. Turn it on to test."
-        elif not st.session_state["ifs1_api_key"].strip():
-            st.session_state["ifs1_status"] = "API key is empty. Add a key to test live mode."
+        elif not _has_runtime_credentials():
+            st.session_state["ifs1_status"] = "No API key detected. Add `OPENAI_API_KEY` in secrets or `.env`."
         else:
             content, error = _call_live(
-                api_key=st.session_state["ifs1_api_key"].strip(),
-                base_url=st.session_state["ifs1_base_url"].strip(),
+                api_key=_runtime_api_key(),
+                base_url=_runtime_base_url(),
                 model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt="You are a concise assistant.",
                 user_prompt="Reply with: connection ok",
@@ -534,7 +605,7 @@ def _sidebar() -> None:
 
 
 def _top() -> None:
-    live_mode = bool(st.session_state["ifs1_live_enabled"] and st.session_state["ifs1_api_key"].strip())
+    live_mode = bool(st.session_state["ifs1_live_enabled"] and _has_runtime_credentials())
     mode_label = "Live API Mode" if live_mode else "Offline Mode"
     mode_class = "live" if live_mode else "offline"
 
@@ -601,7 +672,7 @@ def _script_tab() -> None:
         source = "offline"
         content = offline_output
 
-        if st.session_state["ifs1_live_enabled"] and st.session_state["ifs1_api_key"].strip():
+        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
             system_prompt = "You are a film development copilot. Return clear markdown sections."
             user_prompt = textwrap.dedent(
                 f"""
@@ -623,8 +694,8 @@ def _script_tab() -> None:
                 """
             ).strip()
             live_content, error = _call_live(
-                api_key=st.session_state["ifs1_api_key"].strip(),
-                base_url=st.session_state["ifs1_base_url"].strip(),
+                api_key=_runtime_api_key(),
+                base_url=_runtime_base_url(),
                 model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -672,7 +743,7 @@ def _storyboard_tab() -> None:
         source = "offline"
         content = offline_output
 
-        if st.session_state["ifs1_live_enabled"] and st.session_state["ifs1_api_key"].strip():
+        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
             system_prompt = "You are a storyboard supervisor. Return practical markdown shot plans."
             user_prompt = textwrap.dedent(
                 f"""
@@ -689,8 +760,8 @@ def _storyboard_tab() -> None:
                 """
             ).strip()
             live_content, error = _call_live(
-                api_key=st.session_state["ifs1_api_key"].strip(),
-                base_url=st.session_state["ifs1_base_url"].strip(),
+                api_key=_runtime_api_key(),
+                base_url=_runtime_base_url(),
                 model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -741,7 +812,7 @@ def _edit_tab() -> None:
         source = "offline"
         content = offline_output
 
-        if st.session_state["ifs1_live_enabled"] and st.session_state["ifs1_api_key"].strip():
+        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
             system_prompt = "You are a senior film editor. Return concise high-leverage notes in markdown."
             user_prompt = textwrap.dedent(
                 f"""
@@ -759,8 +830,8 @@ def _edit_tab() -> None:
                 """
             ).strip()
             live_content, error = _call_live(
-                api_key=st.session_state["ifs1_api_key"].strip(),
-                base_url=st.session_state["ifs1_base_url"].strip(),
+                api_key=_runtime_api_key(),
+                base_url=_runtime_base_url(),
                 model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,

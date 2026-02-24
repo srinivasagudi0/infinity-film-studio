@@ -30,6 +30,11 @@ AI-assisted filmmaking suite covering script writing, video edit guidance, and s
    ```  
 6) Open http://localhost:8000
 
+## Streamlit deployment (secrets-safe)
+- The Streamlit apps in this repo now read API configuration from `st.secrets` automatically (and fall back to local env vars).
+- Do not paste API keys into the UI. Add them in Streamlit Cloud under **App settings -> Secrets**.
+- Start from `.streamlit/secrets.toml.example` and paste only the keys you need.
+
 ## One-click helper
 `./start.sh` will create `.env` if missing, attempt Docker first, and otherwise install deps, build the frontend, and launch the web UI on port 8000.
 
@@ -84,6 +89,7 @@ OPENAI_MODEL_FALLBACK_1=gpt-4.1-mini
 ```
 
 Keep real keys in local `.env` or deployment secret managers only. `.env` is ignored by git in this repo.
+For Streamlit Cloud, put the same keys in Secrets instead of committing them.
 
 ## Notes
 - ffmpeg is installed in the Docker image; locally, installing `ffmpeg` + `ffmpeg-python` enables richer metadata.

@@ -31,6 +31,62 @@ if str(BACKEND_ROOT) not in sys.path:
 if load_dotenv is not None:  # pragma: no branch
     load_dotenv(ROOT / ".env", override=False)
 
+SECRET_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_DEFAULT_CHAT_MODEL",
+    "OPENAI_API_KEY_FALLBACK",
+    "OPENAI_BASE_URL_FALLBACK",
+    "OPENAI_MODEL_FALLBACK",
+    "OPENAI_FALLBACK_OPENAI_MODEL",
+)
+
+
+def _hydrate_env_from_streamlit_secrets() -> None:
+    """Load OpenAI config from Streamlit Secrets into env when not already set."""
+    try:
+        secrets_obj = st.secrets
+    except Exception:
+        return
+
+    try:
+        secrets = secrets_obj.to_dict()  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            secrets = dict(secrets_obj)
+        except Exception:
+            return
+
+    openai_block = secrets.get("openai")
+    if isinstance(openai_block, dict):
+        mapping = {
+            "api_key": "OPENAI_API_KEY",
+            "base_url": "OPENAI_BASE_URL",
+            "default_chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
+            "fallback_openai_model": "OPENAI_FALLBACK_OPENAI_MODEL",
+        }
+        for secret_key, env_key in mapping.items():
+            value = openai_block.get(secret_key)
+            if isinstance(value, str) and value.strip() and not os.getenv(env_key):
+                os.environ[env_key] = value.strip()
+
+    for key in SECRET_ENV_KEYS:
+        value = secrets.get(key)
+        if isinstance(value, str) and value.strip() and not os.getenv(key):
+            os.environ[key] = value.strip()
+
+    # Allow indexed fallback keys in secrets without enumerating every slot.
+    for key, value in secrets.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
+            continue
+        if key.startswith(
+            ("OPENAI_API_KEY_FALLBACK_", "OPENAI_BASE_URL_FALLBACK_", "OPENAI_MODEL_FALLBACK_")
+        ) and not os.getenv(key):
+            os.environ[key] = value.strip()
+
+
+_hydrate_env_from_streamlit_secrets()
+
 from infinity_film_studio.app import create_app  # noqa: E402
 
 GENRES = ["Sci-Fi", "Thriller", "Drama", "Mystery", "Action", "Comedy"]
@@ -252,6 +308,20 @@ def _inject_styles() -> None:
             animation: ifs-bg-shift 22s ease infinite;
         }
 
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.22;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+            background-size: 26px 26px;
+            mask-image: radial-gradient(circle at 50% 12%, black 38%, transparent 92%);
+            z-index: 0;
+        }
+
         header[data-testid="stHeader"] {
             display: none;
         }
@@ -299,6 +369,19 @@ def _inject_styles() -> None:
             margin-bottom: 0.65rem;
         }
 
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.3fr 0.9fr;
+            gap: 0.9rem;
+            align-items: stretch;
+        }
+
+        .hero-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 0.68rem;
+        }
+
         .hero-title {
             margin: 0.38rem 0 0;
             font-family: 'Space Grotesk', 'Manrope', sans-serif;
@@ -311,6 +394,13 @@ def _inject_styles() -> None:
             margin: 0.65rem 0 0;
             color: rgba(226, 237, 255, 0.9);
             font-size: 1rem;
+        }
+
+        .hero-meta {
+            margin-top: 0.75rem;
+            color: rgba(215, 229, 255, 0.8);
+            font-size: 0.86rem;
+            letter-spacing: 0.015em;
         }
 
         .mode-pill {
@@ -340,6 +430,75 @@ def _inject_styles() -> None:
             padding: 1rem 1.1rem;
             min-height: 160px;
             margin-bottom: 0.65rem;
+        }
+
+        .callsheet-card {
+            border-radius: 18px;
+            border: 1px solid rgba(164, 188, 245, 0.24);
+            background:
+                linear-gradient(150deg, rgba(11, 23, 49, 0.82), rgba(8, 16, 34, 0.92)),
+                radial-gradient(circle at 20% 10%, rgba(47, 204, 183, 0.14), transparent 36%);
+            padding: 0.9rem 0.95rem;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        .callsheet-kicker {
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            color: rgba(174, 201, 255, 0.78);
+            font-size: 0.72rem;
+            margin: 0;
+        }
+
+        .callsheet-title {
+            margin: 0.22rem 0 0;
+            font-family: 'Space Grotesk', 'Manrope', sans-serif;
+            font-size: 1rem;
+            color: #f6faff;
+        }
+
+        .callsheet-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.45rem 0.7rem;
+            margin-top: 0.68rem;
+        }
+
+        .callsheet-cell {
+            border-radius: 12px;
+            border: 1px solid rgba(154, 181, 241, 0.16);
+            background: rgba(8, 17, 37, 0.48);
+            padding: 0.5rem 0.6rem;
+        }
+
+        .callsheet-cell span {
+            display: block;
+            color: rgba(184, 206, 252, 0.74);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+        }
+
+        .callsheet-cell strong {
+            color: #f0f6ff;
+            font-size: 0.85rem;
+            line-height: 1.3;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-top: 0.15rem;
+        }
+
+        .chip {
+            border-radius: 999px;
+            border: 1px solid rgba(167, 192, 245, 0.2);
+            background: rgba(11, 24, 51, 0.56);
+            color: rgba(230, 239, 255, 0.9);
+            padding: 0.28rem 0.58rem;
+            font-size: 0.78rem;
         }
 
         .brief-card h4 {
@@ -404,6 +563,36 @@ def _inject_styles() -> None:
             box-shadow: 0 0 0 1px rgba(103, 223, 200, 0.24);
         }
 
+        [data-testid="stSidebar"] .stMarkdown p {
+            color: rgba(221, 235, 255, 0.9);
+        }
+
+        .sidebar-note {
+            border-radius: 14px;
+            border: 1px solid rgba(156, 183, 241, 0.22);
+            background: rgba(9, 21, 48, 0.56);
+            padding: 0.7rem 0.8rem;
+            margin: 0.15rem 0 0.7rem;
+            color: rgba(222, 235, 255, 0.92);
+            font-size: 0.84rem;
+            line-height: 1.45;
+        }
+
+        .sidebar-note code {
+            color: #f6fbff;
+            background: rgba(122, 155, 235, 0.12);
+            border-radius: 6px;
+            padding: 0.07rem 0.28rem;
+        }
+
+        .sidebar-section-title {
+            margin: 0.35rem 0 0.25rem;
+            font-family: 'Space Grotesk', 'Manrope', sans-serif;
+            color: #f4f9ff;
+            font-size: 0.95rem;
+            letter-spacing: 0.02em;
+        }
+
         [data-testid="stSidebar"] .stButton > button,
         .stButton > button {
             border-radius: 12px;
@@ -427,6 +616,37 @@ def _inject_styles() -> None:
 
         .seed-grid {
             margin: 0.25rem 0 0.35rem;
+        }
+
+        .cue-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.55rem;
+            margin: 0.65rem 0 0.45rem;
+        }
+
+        .cue-card {
+            border-radius: 14px;
+            border: 1px solid rgba(156, 183, 241, 0.18);
+            background:
+                linear-gradient(160deg, rgba(12, 24, 51, 0.8), rgba(8, 18, 38, 0.9));
+            padding: 0.68rem 0.78rem;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .cue-kicker {
+            color: rgba(178, 202, 252, 0.74);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.68rem;
+            margin: 0;
+        }
+
+        .cue-value {
+            color: #f4f9ff;
+            margin-top: 0.24rem;
+            font-weight: 700;
+            line-height: 1.28;
         }
 
         .export-row {
@@ -460,6 +680,28 @@ def _inject_styles() -> None:
             font-size: 0.82rem;
             margin-top: -0.15rem;
             margin-bottom: 0.12rem;
+        }
+
+        @media (max-width: 980px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .cue-strip {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .cue-strip {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .stApp {
+                animation: none;
+            }
         }
         </style>
         """,
@@ -775,6 +1017,16 @@ def _generate_text(
 def _sidebar_controls() -> None:
     st.sidebar.markdown("## Director Controls")
     st.sidebar.caption("Tune style, pacing, and generation behavior.")
+    st.sidebar.markdown(
+        """
+        <div class="sidebar-note">
+          API credentials are not entered in this UI. Add <code>OPENAI_API_KEY</code> (and optional fallback keys)
+          in Streamlit Secrets or your local <code>.env</code>.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.sidebar.markdown("<div class='sidebar-section-title'>Look & Tone</div>", unsafe_allow_html=True)
 
     preset_names = [preset["name"] for preset in STYLE_PRESETS]
     st.sidebar.selectbox("Style preset", preset_names, key="ifs_preset")
@@ -795,6 +1047,7 @@ def _sidebar_controls() -> None:
         st.session_state["ifs_status_line"] = "Concept seed shuffled."
         _rerun()
 
+    st.sidebar.markdown("<div class='sidebar-section-title'>Project Profile</div>", unsafe_allow_html=True)
     st.sidebar.text_input("Project title", key="ifs_project_title")
     st.sidebar.selectbox("Genre", GENRES, key="ifs_genre")
     st.sidebar.selectbox("Tone", TONES, key="ifs_tone")
@@ -804,6 +1057,7 @@ def _sidebar_controls() -> None:
     st.sidebar.slider("Energy", 0, 100, key="ifs_energy")
     st.sidebar.slider("Pace", 0, 100, key="ifs_pace")
     st.sidebar.slider("Creativity", 0.1, 1.2, key="ifs_temperature")
+    st.sidebar.markdown("<div class='sidebar-section-title'>Model Routing</div>", unsafe_allow_html=True)
     st.sidebar.text_input("Model", key="ifs_model")
 
     st.sidebar.markdown("---")
@@ -818,15 +1072,55 @@ def _top_section(demo_mode: bool, ai_client: Any) -> None:
     concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
     brief = _build_director_brief()
     scores = _compute_scores()
+    now_label = datetime.now().strftime("%a, %b %d • %I:%M %p").replace(" 0", " ")
+    provider_chain = _provider_chain_text(ai_client)
+    project = st.session_state["ifs_project_title"]
+    look_chips = [
+        f"{st.session_state['ifs_genre']} / {st.session_state['ifs_tone']}",
+        st.session_state["ifs_camera_style"],
+        st.session_state["ifs_palette"],
+        f"Focus: {st.session_state['ifs_focus']}",
+    ]
 
     left, right = st.columns([1.4, 1.0], gap="large")
     with left:
+        chip_html = "".join(f"<span class='chip'>{html.escape(chip)}</span>" for chip in look_chips)
         st.markdown(
             f"""
             <div class="hero-card">
-              <span class="mode-pill {mode_class}">{mode_text}</span>
-              <h2 class="hero-title">Infinity Film Studio Director Console</h2>
-              <p class="hero-sub">Script, storyboard, edit, and production synthesis in one control surface.</p>
+              <div class="hero-grid">
+                <div class="hero-stack">
+                  <div>
+                    <span class="mode-pill {mode_class}">{mode_text}</span>
+                    <h2 class="hero-title">Infinity Film Studio Director Console</h2>
+                    <p class="hero-sub">A working creative desk for scripts, shot design, edit notes, and kickoff-ready decks.</p>
+                    <p class="hero-meta">Session clock: {html.escape(now_label)} • Provider route: {html.escape(provider_chain)}</p>
+                  </div>
+                  <div class="chip-row">{chip_html}</div>
+                </div>
+                <div class="callsheet-card">
+                  <p class="callsheet-kicker">Today’s Call Sheet</p>
+                  <p class="callsheet-title">{html.escape(project)}</p>
+                  <div class="callsheet-grid">
+                    <div class="callsheet-cell">
+                      <span>Energy / Pace</span>
+                      <strong>{st.session_state['ifs_energy']}/100 • {st.session_state['ifs_pace']}/100</strong>
+                    </div>
+                    <div class="callsheet-cell">
+                      <span>Frames</span>
+                      <strong>{int(st.session_state['ifs_frame_count'])} planned storyboard frames</strong>
+                    </div>
+                    <div class="callsheet-cell">
+                      <span>Concept Seed</span>
+                      <strong>{html.escape(_short_seed(concept))}</strong>
+                    </div>
+                    <div class="callsheet-cell">
+                      <span>Model</span>
+                      <strong>{html.escape((st.session_state['ifs_model'] or DEFAULT_CHAT_MODEL)[:38])}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -844,8 +1138,20 @@ def _top_section(demo_mode: bool, ai_client: Any) -> None:
         )
 
     st.markdown(f"**Project:** `{st.session_state['ifs_project_title']}`")
-    st.markdown(f"**Provider order:** `{_provider_chain_text(ai_client)}`")
+    st.markdown(f"**Provider order:** `{provider_chain}`")
     st.markdown(f"**Active concept:** {concept}")
+
+    st.markdown(
+        f"""
+        <div class="cue-strip">
+          <div class="cue-card"><p class="cue-kicker">Genre</p><div class="cue-value">{html.escape(st.session_state['ifs_genre'])}</div></div>
+          <div class="cue-card"><p class="cue-kicker">Tone</p><div class="cue-value">{html.escape(st.session_state['ifs_tone'])}</div></div>
+          <div class="cue-card"><p class="cue-kicker">Camera Language</p><div class="cue-value">{html.escape(st.session_state['ifs_camera_style'])}</div></div>
+          <div class="cue-card"><p class="cue-kicker">Palette</p><div class="cue-value">{html.escape(st.session_state['ifs_palette'])}</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     metric_cols = st.columns(5)
     metric_cols[0].metric("Creative", f"{scores['creative']}")

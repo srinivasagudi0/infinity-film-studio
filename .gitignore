@@ -152,6 +152,7 @@ celerybeat.pid
 !.env.example
 !.env.sample
 !.env.template
+.streamlit/secrets.toml
 .envrc
 .venv
 env/
