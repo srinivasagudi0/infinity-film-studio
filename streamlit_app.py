@@ -8,9 +8,14 @@ Two runtime modes are supported:
 from __future__ import annotations
 
 import html
+import csv
+import io
+import json
 import os
 import random
+import subprocess
 import sys
+import tempfile
 import textwrap
 from datetime import datetime
 from pathlib import Path
@@ -278,9 +283,18 @@ def _init_state() -> None:
         "ifs_script_prompt": CONCEPT_SEEDS[0],
         "ifs_story_prompt": "The protagonist commits to the plan while alarms start rising.",
         "ifs_edit_objective": "narrative clarity and emotional punch",
+        "ifs_rough_cut_notes": "",
+        "ifs_rough_cut_question": "Where does pacing drop and what should I cut first?",
+        "ifs_clip_duration_guess_seconds": 90,
+        "ifs_cut_segment_seconds": 20,
         "ifs_script_output": "",
         "ifs_storyboard_output": "",
         "ifs_edit_output": "",
+        "ifs_rough_cut_output": "",
+        "ifs_rough_cut_timeline_rows": [],
+        "ifs_rough_cut_timeline_csv": "",
+        "ifs_rough_cut_timeline_json": "",
+        "ifs_rough_cut_metadata": {},
         "ifs_deck_output": "",
         "ifs_history": [],
         "ifs_preset": STYLE_PRESETS[0]["name"],
@@ -798,6 +812,427 @@ def _progress(label: str, value: int) -> None:
         st.progress(value / 100.0)
 
 
+def _format_timestamp(seconds: float | int | None) -> str:
+    if seconds is None:
+        return "--:--"
+    total = max(0, int(round(float(seconds))))
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _format_timestamp_range(start: float | int, end: float | int) -> str:
+    return f"{_format_timestamp(start)}-{_format_timestamp(end)}"
+
+
+def _format_bytes(num_bytes: int | None) -> str:
+    if not num_bytes:
+        return "0 B"
+    value = float(num_bytes)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if value < 1024.0 or unit == "GB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} {unit}"
+        value /= 1024.0
+    return f"{int(num_bytes)} B"
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_rate(rate: str | None) -> float | None:
+    if not rate:
+        return None
+    text = str(rate).strip()
+    if not text or text in {"0/0", "N/A"}:
+        return None
+    if "/" in text:
+        left, right = text.split("/", 1)
+        numerator = _safe_float(left)
+        denominator = _safe_float(right)
+        if numerator is None or denominator in (None, 0.0):
+            return None
+        return numerator / denominator
+    return _safe_float(text)
+
+
+@st.cache_data(show_spinner=False)
+def _probe_video_metadata(file_name: str, video_bytes: bytes) -> dict[str, Any]:
+    """Best-effort ffprobe metadata extraction for rough-cut uploads."""
+    meta: dict[str, Any] = {
+        "file_name": file_name or "rough-cut",
+        "file_size_bytes": len(video_bytes or b""),
+        "duration_seconds": None,
+        "width": None,
+        "height": None,
+        "fps": None,
+        "video_codec": None,
+        "audio_codec": None,
+        "bitrate_kbps": None,
+        "probe_status": "unavailable",
+    }
+    if not video_bytes:
+        return meta
+
+    suffix = Path(file_name or "clip.mp4").suffix or ".mp4"
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(video_bytes)
+            temp_path = Path(tmp.name)
+
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_format",
+                "-show_streams",
+                "-print_format",
+                "json",
+                str(temp_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        if proc.returncode != 0:
+            meta["probe_status"] = "ffprobe_failed"
+            return meta
+
+        payload = json.loads(proc.stdout or "{}")
+        streams = payload.get("streams") or []
+        format_block = payload.get("format") or {}
+        video_stream = next(
+            (s for s in streams if str(s.get("codec_type", "")).lower() == "video"),
+            None,
+        )
+        audio_stream = next(
+            (s for s in streams if str(s.get("codec_type", "")).lower() == "audio"),
+            None,
+        )
+
+        duration = _safe_float(format_block.get("duration"))
+        if duration is None and video_stream:
+            duration = _safe_float(video_stream.get("duration"))
+        if duration is None and audio_stream:
+            duration = _safe_float(audio_stream.get("duration"))
+
+        bitrate = _safe_float(format_block.get("bit_rate"))
+        if bitrate is None and video_stream:
+            bitrate = _safe_float(video_stream.get("bit_rate"))
+
+        meta.update(
+            {
+                "duration_seconds": duration,
+                "width": video_stream.get("width") if video_stream else None,
+                "height": video_stream.get("height") if video_stream else None,
+                "fps": _parse_rate((video_stream or {}).get("avg_frame_rate")),
+                "video_codec": (video_stream or {}).get("codec_name"),
+                "audio_codec": (audio_stream or {}).get("codec_name"),
+                "bitrate_kbps": int(round(bitrate / 1000.0)) if bitrate else None,
+                "probe_status": "ok",
+            }
+        )
+        return meta
+    except FileNotFoundError:
+        meta["probe_status"] = "ffprobe_not_installed"
+        return meta
+    except (subprocess.TimeoutExpired, json.JSONDecodeError):
+        meta["probe_status"] = "ffprobe_failed"
+        return meta
+    except Exception:
+        meta["probe_status"] = "ffprobe_failed"
+        return meta
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _normalize_clip_duration_seconds(
+    metadata: dict[str, Any],
+    fallback_seconds: int,
+) -> int:
+    detected = _safe_float(metadata.get("duration_seconds"))
+    if detected and detected > 0:
+        return max(4, int(round(detected)))
+    return max(4, int(fallback_seconds))
+
+
+def _build_cut_segments(duration_seconds: int, segment_seconds: int) -> list[dict[str, int]]:
+    duration = max(4, int(duration_seconds))
+    segment = max(5, int(segment_seconds))
+
+    if duration <= segment:
+        return [{"start": 0, "end": duration, "length": duration}]
+
+    segments: list[dict[str, int]] = []
+    cursor = 0
+    while cursor < duration:
+        end = min(duration, cursor + segment)
+        segments.append({"start": cursor, "end": end, "length": max(1, end - cursor)})
+        cursor = end
+
+    if len(segments) > 1 and segments[-1]["length"] < max(3, segment // 3):
+        segments[-2]["end"] = segments[-1]["end"]
+        segments[-2]["length"] = segments[-2]["end"] - segments[-2]["start"]
+        segments.pop()
+
+    return segments
+
+
+def _clip_note_snippets(notes: str) -> list[str]:
+    snippets: list[str] = []
+    for line in notes.replace("\r", "\n").split("\n"):
+        cleaned = " ".join(line.strip().split())
+        if not cleaned:
+            continue
+        snippets.append(cleaned[:140])
+    return snippets
+
+
+def _rough_cut_rows_to_csv(rows: Sequence[dict[str, Any]]) -> str:
+    if not rows:
+        return ""
+    fieldnames = [
+        "timestamp",
+        "priority",
+        "focus",
+        "issue",
+        "observation",
+        "action",
+        "confidence",
+    ]
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({name: row.get(name, "") for name in fieldnames})
+    return out.getvalue()
+
+
+def _rough_cut_table_markdown(rows: Sequence[dict[str, Any]]) -> str:
+    lines = [
+        "| Time | Priority | Focus | Issue | Observation | Recommended Cut |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        lines.append(
+            "| {timestamp} | {priority} | {focus} | {issue} | {observation} | {action} |".format(
+                timestamp=str(row.get("timestamp", "")).replace("|", "/"),
+                priority=str(row.get("priority", "")).replace("|", "/"),
+                focus=str(row.get("focus", "")).replace("|", "/"),
+                issue=str(row.get("issue", "")).replace("|", "/"),
+                observation=str(row.get("observation", "")).replace("|", "/"),
+                action=str(row.get("action", "")).replace("|", "/"),
+            )
+        )
+    return "\n".join(lines)
+
+
+def _rough_cut_rows_summary(rows: Sequence[dict[str, Any]]) -> str:
+    if not rows:
+        return "No rough-cut timeline flags."
+
+    priority_counts: dict[str, int] = {}
+    issue_counts: dict[str, int] = {}
+    for row in rows:
+        priority = str(row.get("priority", "Unknown"))
+        issue = str(row.get("issue", "General"))
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        issue_counts[issue] = issue_counts.get(issue, 0) + 1
+
+    prio_text = ", ".join(
+        f"{name}: {priority_counts.get(name, 0)}" for name in ["High", "Medium", "Low"] if priority_counts.get(name)
+    ) or "No priorities"
+    issue_text = ", ".join(
+        f"{name} ({count})" for name, count in sorted(issue_counts.items(), key=lambda item: (-item[1], item[0]))[:4]
+    ) or "No issue clusters"
+    first_times = ", ".join(str(row.get("timestamp", "")) for row in rows[:5])
+    return f"Priorities -> {prio_text}. Top issue clusters -> {issue_text}. First flagged windows -> {first_times}."
+
+
+def _fallback_rough_cut_rows(
+    *,
+    project: str,
+    objective: str,
+    pacing: str,
+    issues: Sequence[str],
+    tone: str,
+    focus: str,
+    energy: int,
+    pace: int,
+    duration_seconds: int,
+    segment_seconds: int,
+    notes: str,
+    file_name: str,
+) -> list[dict[str, Any]]:
+    rng = random.Random(
+        _seed_for(
+            project,
+            objective,
+            pacing,
+            tone,
+            focus,
+            str(energy),
+            str(pace),
+            str(duration_seconds),
+            str(segment_seconds),
+            ",".join(sorted(issues)),
+            file_name,
+            notes[:240],
+        )
+    )
+
+    segments = _build_cut_segments(duration_seconds, segment_seconds)
+    note_snippets = _clip_note_snippets(notes)
+    issue_cycle = list(issues) or [
+        "Too slow in middle",
+        "Confusing geography",
+        "Weak ending impact",
+        "Looks flat",
+    ]
+    focus_cycle = [
+        focus,
+        "Screen direction",
+        "Performance emphasis",
+        "Cut motivation",
+        "Rhythm continuity",
+        "Shot geography",
+    ]
+    priority_labels = ["Low", "Medium", "High"]
+
+    observation_stems = [
+        "energy drops after the setup beat and the cut holds a fraction too long",
+        "viewer orientation gets weaker because shot order withholds a reset wide",
+        "performance reaction lands late, reducing emotional carry into the next beat",
+        "visual information repeats without new story value",
+        "audio momentum implies escalation, but picture rhythm stays flat",
+        "the cut point lands before the intention reads on screen",
+    ]
+    action_stems = [
+        "trim 8-16 frames and cut on movement initiation",
+        "insert or move an orienting wide before the peak beat",
+        "hold the reaction 10-14 frames longer, then hard cut to consequence",
+        "replace the transition with a straight cut and front-load the next beat",
+        "use an L-cut from the next line to pull momentum forward",
+        "remove one redundant angle and keep the strongest eyeline match",
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for idx, segment in enumerate(segments):
+        start = segment["start"]
+        end = segment["end"]
+        issue = issue_cycle[idx % len(issue_cycle)]
+        focus_label = focus_cycle[idx % len(focus_cycle)]
+
+        intensity = 0
+        if issue in {"Too slow in middle", "Confusing geography", "Weak ending impact"}:
+            intensity += 1
+        if pacing == "Fast" and segment["length"] >= max(12, segment_seconds):
+            intensity += 1
+        if idx == len(segments) - 1 and "Weak ending impact" in issue_cycle:
+            intensity += 1
+        if 35 <= pace <= 55 and idx == len(segments) // 2:
+            intensity += 1
+        intensity = min(2, intensity + (1 if rng.random() > 0.72 else 0))
+        priority = priority_labels[intensity]
+
+        observation = rng.choice(observation_stems)
+        action = rng.choice(action_stems)
+
+        if note_snippets:
+            source_note = note_snippets[idx % len(note_snippets)]
+            observation = f"{observation}; transcript/notes cue: \"{source_note}\""
+
+        rows.append(
+            {
+                "timestamp": _format_timestamp_range(start, end),
+                "priority": priority,
+                "focus": focus_label,
+                "issue": issue,
+                "observation": observation,
+                "action": action,
+                "confidence": f"{0.58 + (idx % 4) * 0.08:.2f}",
+                "start_seconds": start,
+                "end_seconds": end,
+            }
+        )
+
+    return rows
+
+
+def _fallback_rough_cut_review(
+    *,
+    project: str,
+    objective: str,
+    pacing: str,
+    runtime_target: int,
+    tone: str,
+    focus: str,
+    energy: int,
+    pace: int,
+    issues: Sequence[str],
+    metadata: dict[str, Any],
+    rows: Sequence[dict[str, Any]],
+    review_question: str,
+) -> str:
+    duration_seconds = _normalize_clip_duration_seconds(metadata, 90)
+    width = metadata.get("width")
+    height = metadata.get("height")
+    fps = metadata.get("fps")
+    res_text = f"{width}x{height}" if width and height else "Unknown"
+    fps_text = f"{fps:.2f}" if isinstance(fps, (float, int)) else "Unknown"
+    flagged_high = [row["timestamp"] for row in rows if row.get("priority") == "High"]
+    repeated_issues: dict[str, int] = {}
+    for row in rows:
+        label = str(row.get("issue", "General"))
+        repeated_issues[label] = repeated_issues.get(label, 0) + 1
+    top_issues = sorted(repeated_issues.items(), key=lambda item: (-item[1], item[0]))[:3]
+    issue_summary = ", ".join(f"{name} ({count})" for name, count in top_issues) or "none"
+
+    lines = [
+        "### Rough Cut Snapshot",
+        f"- Project: {project}",
+        f"- Clip file: {metadata.get('file_name', 'rough-cut')}",
+        f"- Clip length: {_format_timestamp(duration_seconds)}",
+        f"- Resolution / FPS: {res_text} / {fps_text}",
+        f"- Tone + focus target: {tone} / {focus}",
+        f"- Edit objective: {objective}",
+        f"- Review question: {review_question or 'General pacing and clarity pass'}",
+        f"- Runtime target context: {runtime_target} min ({pacing.lower()} pacing profile)",
+        "",
+        "### Timestamped Cut Notes",
+        _rough_cut_table_markdown(rows),
+        "",
+        "### Pattern Diagnosis",
+        f"- Most repeated issues: {issue_summary}.",
+        f"- Highest-priority zones: {', '.join(flagged_high) if flagged_high else 'No high-priority zones flagged in this pass.'}",
+        f"- Rhythm profile suggests {'compression' if pace >= 60 else 'selective expansion'} around the midpoint to protect {objective.lower()}.",
+        f"- Energy/Pace balance ({energy}/{pace}) supports {'hard cuts and movement-based transitions' if energy >= 65 else 'clean reaction holds and motivated dissolves'} as the default strategy.",
+        "",
+        "### First Pass Fix Order",
+        "1. Resolve all High priority timestamp flags before color or polish passes.",
+        "2. Rebuild geography around the first confusion point using one orienting shot or clearer eyeline progression.",
+        "3. Tighten dead air inside repeated setup beats, then re-check emotional readability.",
+        "4. Rewatch without audio once to validate visual continuity and story comprehension.",
+        "5. Rewatch audio-only to catch dialogue clarity dips and L-cut opportunities.",
+    ]
+    return "\n".join(lines)
+
+
 def _fallback_script_pack(
     project: str,
     concept: str,
@@ -963,10 +1398,20 @@ def _fallback_edit_notes(
     return "\n".join(notes)
 
 
-def _fallback_deck(project: str, brief: str, script: str, storyboard: str, edit: str) -> str:
+def _fallback_deck(
+    project: str,
+    brief: str,
+    script: str,
+    storyboard: str,
+    edit: str,
+    rough_cut: str = "",
+    rough_cut_rows: Sequence[dict[str, Any]] | None = None,
+) -> str:
     has_script = "ready" if script else "pending"
     has_story = "ready" if storyboard else "pending"
     has_edit = "ready" if edit else "pending"
+    has_rough_cut = "ready" if rough_cut else "pending"
+    rough_cut_summary = _rough_cut_rows_summary(rough_cut_rows or [])
 
     return "\n".join(
         [
@@ -975,14 +1420,18 @@ def _fallback_deck(project: str, brief: str, script: str, storyboard: str, edit:
             f"- Script Pack: {has_script}",
             f"- Storyboard: {has_story}",
             f"- Edit Notes: {has_edit}",
+            f"- Rough Cut Review: {has_rough_cut}",
             "",
             "### Creative Thesis",
             brief,
             "",
+            "### Rough Cut Signal",
+            rough_cut_summary,
+            "",
             "### Next 3 Moves",
             "1. Lock the emotional objective for each major beat.",
             "2. Validate visual continuity from storyboard frame 1 to final consequence frame.",
-            "3. Use edit notes to tighten the midpoint and sharpen final impact.",
+            "3. Use edit notes and rough-cut timestamps to tighten the midpoint and sharpen final impact.",
         ]
     )
 
@@ -1369,17 +1818,106 @@ def _storyboard_tab(ai_client: Any) -> None:
 
 def _edit_tab(ai_client: Any) -> None:
     st.subheader("Edit Review")
-    st.caption("Get actionable cut, pacing, and clarity notes.")
+    st.caption("Generate standard edit notes or upload a rough cut for timestamped review.")
 
-    pacing = st.selectbox("Pacing profile", ["Fast", "Balanced", "Slow burn"], index=1)
-    runtime_target = st.slider("Target runtime (minutes)", 3, 40, 12)
-    st.text_input("Primary objective", key="ifs_edit_objective")
-    issues = st.multiselect("Current issues", ISSUE_FLAGS, default=["Too slow in middle"])
+    settings_col, rough_cut_col = st.columns([1.05, 1.15], gap="large")
 
-    controls = st.columns(2)
-    generate = controls[0].button("Generate Edit Notes", type="primary", use_container_width=True)
-    if controls[1].button("Clear Edit Output", key="clear_edit", use_container_width=True):
+    with settings_col:
+        pacing = st.selectbox("Pacing profile", ["Fast", "Balanced", "Slow burn"], index=1)
+        runtime_target = st.slider("Target runtime (minutes)", 3, 40, 12)
+        st.text_input("Primary objective", key="ifs_edit_objective")
+        issues = st.multiselect("Current issues", ISSUE_FLAGS, default=["Too slow in middle"])
+
+    clip_bytes = b""
+    clip_name = ""
+    clip_type = ""
+    clip_meta: dict[str, Any] = {}
+
+    with rough_cut_col:
+        st.markdown("#### Rough Cut Analyzer")
+        st.caption("Upload a clip and generate timestamped cut notes you can act on immediately.")
+        uploaded_video = st.file_uploader(
+            "Upload rough cut (mp4/mov/webm/mkv)",
+            type=["mp4", "mov", "m4v", "webm", "mkv", "avi"],
+            key="ifs_rough_cut_file",
+            help="The app uses local metadata probing when available and builds a timestamped review.",
+        )
+        st.text_area(
+            "Transcript / shot notes (optional)",
+            key="ifs_rough_cut_notes",
+            height=120,
+            help="Paste transcript, shot notes, or editor observations to improve cut recommendations.",
+        )
+        st.text_input(
+            "Review question (optional)",
+            key="ifs_rough_cut_question",
+            help="Example: Where does pacing drop, and what should I trim first?",
+        )
+        cut_cfg_a, cut_cfg_b = st.columns(2)
+        cut_cfg_a.number_input(
+            "Clip duration fallback (sec)",
+            min_value=4,
+            max_value=7200,
+            step=1,
+            key="ifs_clip_duration_guess_seconds",
+            help="Used when ffprobe metadata is unavailable.",
+        )
+        cut_cfg_b.slider(
+            "Segment size (sec)",
+            min_value=5,
+            max_value=90,
+            key="ifs_cut_segment_seconds",
+            help="Smaller segments produce more granular timestamp notes.",
+        )
+
+        if uploaded_video is not None:
+            clip_bytes = uploaded_video.getvalue()
+            clip_name = uploaded_video.name
+            clip_type = uploaded_video.type or ""
+            clip_meta = _probe_video_metadata(clip_name, clip_bytes)
+
+            detected_duration = _safe_float(clip_meta.get("duration_seconds"))
+            clip_len_label = (
+                _format_timestamp(detected_duration)
+                if detected_duration and detected_duration > 0
+                else _format_timestamp(st.session_state["ifs_clip_duration_guess_seconds"])
+            )
+            res_label = (
+                f"{clip_meta.get('width')}x{clip_meta.get('height')}"
+                if clip_meta.get("width") and clip_meta.get("height")
+                else "Unknown"
+            )
+
+            meta_cols = st.columns(4)
+            meta_cols[0].metric("Clip Length", clip_len_label)
+            meta_cols[1].metric("File Size", _format_bytes(len(clip_bytes)))
+            meta_cols[2].metric("Resolution", res_label)
+            meta_cols[3].metric(
+                "FPS",
+                f"{clip_meta['fps']:.2f}" if isinstance(clip_meta.get("fps"), (int, float)) else "Unknown",
+            )
+
+            if clip_meta.get("probe_status") == "ffprobe_not_installed":
+                st.info("`ffprobe` is not installed locally. Using manual duration fallback for timeline segmentation.")
+            elif clip_meta.get("probe_status") == "ffprobe_failed":
+                st.info("Video metadata probe failed. Timestamp analysis will use the fallback duration you set.")
+
+            with st.expander("Preview uploaded rough cut", expanded=False):
+                st.video(clip_bytes)
+                st.caption(
+                    f"File: {clip_name} • MIME: {clip_type or 'unknown'} • Probe: {clip_meta.get('probe_status', 'unknown')}"
+                )
+
+    controls = st.columns(3)
+    generate = controls[0].button("Generate Edit Notes", use_container_width=True)
+    analyze_cut = controls[1].button("Analyze Rough Cut", type="primary", use_container_width=True)
+    if controls[2].button("Clear Edit Output", key="clear_edit", use_container_width=True):
         st.session_state["ifs_edit_output"] = ""
+        st.session_state["ifs_rough_cut_output"] = ""
+        st.session_state["ifs_rough_cut_timeline_rows"] = []
+        st.session_state["ifs_rough_cut_timeline_csv"] = ""
+        st.session_state["ifs_rough_cut_timeline_json"] = ""
+        st.session_state["ifs_rough_cut_metadata"] = {}
         st.session_state["ifs_status_line"] = "Edit output cleared."
         _rerun()
 
@@ -1434,9 +1972,174 @@ def _edit_tab(ai_client: Any) -> None:
         st.session_state["ifs_status_line"] = f"Edit notes generated ({status})."
         _save_history("Edit", f"{project} edit notes", content)
 
+    if analyze_cut:
+        project = st.session_state["ifs_project_title"]
+        tone = st.session_state["ifs_tone"]
+        focus = st.session_state["ifs_focus"]
+        objective = st.session_state["ifs_edit_objective"]
+        energy = int(st.session_state["ifs_energy"])
+        pace = int(st.session_state["ifs_pace"])
+        model = st.session_state["ifs_model"].strip() or DEFAULT_CHAT_MODEL
+        temperature = float(st.session_state["ifs_temperature"])
+        cut_notes = st.session_state["ifs_rough_cut_notes"]
+        review_question = st.session_state["ifs_rough_cut_question"].strip()
+        segment_seconds = int(st.session_state["ifs_cut_segment_seconds"])
+        fallback_duration_seconds = int(st.session_state["ifs_clip_duration_guess_seconds"])
+
+        if not clip_bytes and not cut_notes.strip():
+            st.warning("Upload a rough cut or paste transcript/shot notes to run timestamped analysis.")
+        else:
+            if not clip_meta:
+                clip_meta = {
+                    "file_name": clip_name or "rough-cut",
+                    "file_size_bytes": len(clip_bytes),
+                    "duration_seconds": None,
+                    "width": None,
+                    "height": None,
+                    "fps": None,
+                    "video_codec": None,
+                    "audio_codec": None,
+                    "bitrate_kbps": None,
+                    "probe_status": "not_probed",
+                }
+            clip_meta["file_name"] = clip_name or clip_meta.get("file_name") or "rough-cut"
+            clip_meta["file_size_bytes"] = len(clip_bytes)
+
+            duration_seconds = _normalize_clip_duration_seconds(clip_meta, fallback_duration_seconds)
+            rows = _fallback_rough_cut_rows(
+                project=project,
+                objective=objective,
+                pacing=pacing,
+                issues=issues,
+                tone=tone,
+                focus=focus,
+                energy=energy,
+                pace=pace,
+                duration_seconds=duration_seconds,
+                segment_seconds=segment_seconds,
+                notes=cut_notes,
+                file_name=clip_name or "rough-cut",
+            )
+            fallback_content = _fallback_rough_cut_review(
+                project=project,
+                objective=objective,
+                pacing=pacing,
+                runtime_target=runtime_target,
+                tone=tone,
+                focus=focus,
+                energy=energy,
+                pace=pace,
+                issues=issues,
+                metadata=clip_meta,
+                rows=rows,
+                review_question=review_question,
+            )
+
+            segment_preview = ", ".join(row["timestamp"] for row in rows[:8])
+            transcript_excerpt = cut_notes.strip()[:3000] if cut_notes.strip() else "No transcript/notes provided."
+            metadata_summary = {
+                "file_name": clip_meta.get("file_name") or "rough-cut",
+                "file_size_bytes": clip_meta.get("file_size_bytes"),
+                "probe_status": clip_meta.get("probe_status"),
+                "duration_seconds": clip_meta.get("duration_seconds") or duration_seconds,
+                "width": clip_meta.get("width"),
+                "height": clip_meta.get("height"),
+                "fps": clip_meta.get("fps"),
+                "video_codec": clip_meta.get("video_codec"),
+                "audio_codec": clip_meta.get("audio_codec"),
+                "bitrate_kbps": clip_meta.get("bitrate_kbps"),
+            }
+
+            system_prompt = (
+                "You are a senior film editor reviewing a rough cut. Produce timestamped, production-ready notes "
+                "that improve pacing, clarity, geography, and emotional impact. Return markdown only."
+            )
+            user_prompt = textwrap.dedent(
+                f"""
+                Project title: {project}
+                Tone: {tone}
+                Pacing profile: {pacing}
+                Runtime target: {runtime_target} minutes
+                Objective: {objective}
+                Focus area: {focus}
+                Energy: {energy}/100
+                Pace: {pace}/100
+                Current issues: {', '.join(issues) if issues else 'none'}
+                Review question: {review_question or 'General rough-cut pass'}
+
+                Clip metadata (JSON):
+                {json.dumps(metadata_summary, indent=2)}
+
+                Timeline segments under review:
+                {segment_preview}
+
+                Transcript / shot notes (may be partial):
+                {transcript_excerpt}
+
+                Required output format:
+                1) "Rough Cut Snapshot" bullets
+                2) "Timestamped Cut Notes" markdown table with columns:
+                   Time | Priority | Focus | Issue | Observation | Recommended Cut
+                3) "Pattern Diagnosis" bullets
+                4) "First Pass Fix Order" numbered list
+
+                Keep recommendations concrete (frame trims, cut timing, inserts, L-cuts/J-cuts, reaction holds).
+                """
+            ).strip()
+
+            with st.spinner("Analyzing rough cut timeline..."):
+                content, status = _generate_text(
+                    ai_client,
+                    model,
+                    system_prompt,
+                    user_prompt,
+                    lambda: fallback_content,
+                    temperature,
+                )
+
+            if status == "fallback":
+                st.info("Live model call failed, so a local timestamped rough-cut review was generated.")
+
+            st.session_state["ifs_rough_cut_output"] = content
+            st.session_state["ifs_rough_cut_timeline_rows"] = rows
+            st.session_state["ifs_rough_cut_timeline_csv"] = _rough_cut_rows_to_csv(rows)
+            st.session_state["ifs_rough_cut_timeline_json"] = json.dumps(rows, indent=2)
+            st.session_state["ifs_rough_cut_metadata"] = metadata_summary
+            st.session_state["ifs_status_line"] = f"Rough cut analysis generated ({status})."
+            _save_history("Rough Cut", f"{project} timestamped review", content)
+
+    if st.session_state["ifs_rough_cut_timeline_rows"]:
+        st.markdown("#### Timeline Flags")
+        st.caption("Structured timestamped notes generated for the rough-cut pass (downloadable as CSV/JSON).")
+        rows = st.session_state["ifs_rough_cut_timeline_rows"]
+        count_high = sum(1 for row in rows if row.get("priority") == "High")
+        count_medium = sum(1 for row in rows if row.get("priority") == "Medium")
+        count_low = sum(1 for row in rows if row.get("priority") == "Low")
+        sum_cols = st.columns(4)
+        sum_cols[0].metric("Flags", str(len(rows)))
+        sum_cols[1].metric("High", str(count_high))
+        sum_cols[2].metric("Medium", str(count_medium))
+        sum_cols[3].metric("Low", str(count_low))
+        st.caption(_rough_cut_rows_summary(rows))
+        display_rows = [
+            {
+                "Time": row.get("timestamp", ""),
+                "Priority": row.get("priority", ""),
+                "Focus": row.get("focus", ""),
+                "Issue": row.get("issue", ""),
+                "Observation": row.get("observation", ""),
+                "Recommended Cut": row.get("action", ""),
+            }
+            for row in rows
+        ]
+        try:
+            st.dataframe(display_rows, use_container_width=True, hide_index=True)
+        except Exception:
+            st.json(display_rows, expanded=False)
+
     if st.session_state["ifs_edit_output"]:
+        st.markdown("#### Edit Notes")
         st.markdown(st.session_state["ifs_edit_output"])
-        st.markdown("<div class='export-row'></div>", unsafe_allow_html=True)
         st.download_button(
             "Download Edit Notes",
             data=st.session_state["ifs_edit_output"],
@@ -1445,6 +2148,39 @@ def _edit_tab(ai_client: Any) -> None:
             use_container_width=True,
             key="dl_edit",
         )
+        st.markdown("<div class='export-row'></div>", unsafe_allow_html=True)
+
+    if st.session_state["ifs_rough_cut_output"]:
+        st.markdown("#### Rough Cut Analysis")
+        st.markdown(st.session_state["ifs_rough_cut_output"])
+        export_cols = st.columns(3)
+        export_cols[0].download_button(
+            "Download Rough Cut Review",
+            data=st.session_state["ifs_rough_cut_output"],
+            file_name="rough_cut_review.md",
+            mime="text/markdown",
+            use_container_width=True,
+            key="dl_rough_cut_review",
+        )
+        if st.session_state["ifs_rough_cut_timeline_csv"]:
+            export_cols[1].download_button(
+                "Download Timeline CSV",
+                data=st.session_state["ifs_rough_cut_timeline_csv"],
+                file_name="rough_cut_timeline.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="dl_cut_csv",
+            )
+        if st.session_state["ifs_rough_cut_timeline_json"]:
+            export_cols[2].download_button(
+                "Download Timeline JSON",
+                data=st.session_state["ifs_rough_cut_timeline_json"],
+                file_name="rough_cut_timeline.json",
+                mime="application/json",
+                use_container_width=True,
+                key="dl_cut_json",
+            )
+        st.markdown("<div class='export-row'></div>", unsafe_allow_html=True)
 
 
 def _deck_tab(ai_client: Any) -> None:
@@ -1467,6 +2203,10 @@ def _deck_tab(ai_client: Any) -> None:
         script_content = st.session_state["ifs_script_output"]
         storyboard_content = st.session_state["ifs_storyboard_output"]
         edit_content = st.session_state["ifs_edit_output"]
+        rough_cut_content = st.session_state.get("ifs_rough_cut_output", "")
+        rough_cut_rows = st.session_state.get("ifs_rough_cut_timeline_rows", [])
+        rough_cut_meta = st.session_state.get("ifs_rough_cut_metadata", {})
+        rough_cut_summary = _rough_cut_rows_summary(rough_cut_rows)
 
         system_prompt = (
             "You are an executive creative producer. Build a concise production deck summary "
@@ -1486,6 +2226,15 @@ def _deck_tab(ai_client: Any) -> None:
             Edit notes:
             {edit_content[:2200] if edit_content else 'No edit notes yet.'}
 
+            Rough cut review:
+            {rough_cut_content[:2800] if rough_cut_content else 'No rough cut review yet.'}
+
+            Rough cut timeline summary:
+            {rough_cut_summary}
+
+            Rough cut metadata (JSON):
+            {json.dumps(rough_cut_meta, indent=2) if rough_cut_meta else 'No metadata yet.'}
+
             Create markdown with sections:
             - Executive Summary
             - What Is Locked
@@ -1495,7 +2244,15 @@ def _deck_tab(ai_client: Any) -> None:
             """
         ).strip()
 
-        fallback = lambda: _fallback_deck(project, brief, script_content, storyboard_content, edit_content)
+        fallback = lambda: _fallback_deck(
+            project,
+            brief,
+            script_content,
+            storyboard_content,
+            edit_content,
+            rough_cut_content,
+            rough_cut_rows,
+        )
 
         with st.spinner("Generating director deck..."):
             content, status = _generate_text(

@@ -7,6 +7,7 @@ AI-assisted filmmaking suite covering script writing, video edit guidance, and s
 ## Features
 - Script Copilot chat with session persistence and lightweight memory summarization
 - One-shot scene, storyboard frame, and edit suggestions
+- Rough-cut analyzer in Streamlit with timestamped edit flags, metadata probing, and CSV/JSON timeline exports
 - Video review endpoint that accepts uploads and returns AI notes (uses ffmpeg metadata when available)
 - Web UI (React) plus CLI and Tkinter desktop placeholders
 - Docker image that serves the built frontend + API on port 8000
@@ -93,6 +94,7 @@ For Streamlit Cloud, put the same keys in Secrets instead of committing them.
 
 ## Notes
 - ffmpeg is installed in the Docker image; locally, installing `ffmpeg` + `ffmpeg-python` enables richer metadata.
+- If `ffprobe` is installed locally, the Streamlit rough-cut analyzer auto-detects clip duration/resolution/FPS. Otherwise it falls back to the manual duration field.
 - File persistence uses JSON stores under `media/` (scripts, chats, media assets, storyboards).
 
 Enjoy exploring the studio!
