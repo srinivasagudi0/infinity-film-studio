@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import html
 import csv
+import difflib
 import io
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -237,6 +239,50 @@ def _seed_for(*parts: str) -> int:
     return abs(hash(key)) % (2**31)
 
 
+WORKSPACE_SETTINGS_KEYS = (
+    "ifs_project_title",
+    "ifs_genre",
+    "ifs_tone",
+    "ifs_camera_style",
+    "ifs_palette",
+    "ifs_focus",
+    "ifs_energy",
+    "ifs_pace",
+    "ifs_concept_idx",
+    "ifs_model",
+    "ifs_temperature",
+    "ifs_frame_count",
+    "ifs_script_prompt",
+    "ifs_story_prompt",
+    "ifs_edit_objective",
+    "ifs_rough_cut_notes",
+    "ifs_rough_cut_question",
+    "ifs_clip_duration_guess_seconds",
+    "ifs_cut_segment_seconds",
+    "ifs_preset",
+)
+
+WORKSPACE_OUTPUT_KEYS = (
+    "ifs_script_output",
+    "ifs_storyboard_output",
+    "ifs_edit_output",
+    "ifs_rough_cut_output",
+    "ifs_deck_output",
+    "ifs_rough_cut_timeline_rows",
+    "ifs_rough_cut_timeline_csv",
+    "ifs_rough_cut_timeline_json",
+    "ifs_rough_cut_metadata",
+)
+
+WORKSPACE_COMPARE_FIELDS = {
+    "Script Pack": "ifs_script_output",
+    "Storyboard": "ifs_storyboard_output",
+    "Edit Notes": "ifs_edit_output",
+    "Rough Cut Review": "ifs_rough_cut_output",
+    "Director Deck": "ifs_deck_output",
+}
+
+
 def _short_seed(seed: str) -> str:
     words = seed.replace(".", "").split()
     return " ".join(words[:4]) + "..."
@@ -298,6 +344,13 @@ def _init_state() -> None:
         "ifs_deck_output": "",
         "ifs_history": [],
         "ifs_preset": STYLE_PRESETS[0]["name"],
+        "ifs_workspace_name": "Neon Corridor",
+        "ifs_workspace_version_note": "",
+        "ifs_workspace_selected_id": "",
+        "ifs_workspace_compare_left": "",
+        "ifs_workspace_compare_right": "",
+        "ifs_workspace_compare_field": "Director Deck",
+        "ifs_workspace_export_source": "Current session",
         "ifs_status_line": "Ready.",
     }
     for key, value in defaults.items():
@@ -1231,6 +1284,529 @@ def _fallback_rough_cut_review(
         "5. Rewatch audio-only to catch dialogue clarity dips and L-cut opportunities.",
     ]
     return "\n".join(lines)
+
+
+def _slugify_workspace_name(name: str) -> str:
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return text or "untitled-project"
+
+
+def _workspace_root() -> Path:
+    custom_root = os.getenv("IFS_WORKSPACE_ROOT", "").strip()
+    if custom_root:
+        root = Path(custom_root)
+    else:
+        root = ROOT / "media" / "workspaces"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _workspace_file(project_id: str) -> Path:
+    return _workspace_root() / f"{project_id}.json"
+
+
+def _workspace_now_iso() -> str:
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _snapshot_section_text(snapshot: dict[str, Any], field_key: str) -> str:
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    value = outputs.get(field_key, "")
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    try:
+        return json.dumps(value, indent=2, sort_keys=True)
+    except Exception:
+        return str(value)
+
+
+def _capture_workspace_snapshot() -> dict[str, Any]:
+    settings = {key: st.session_state.get(key) for key in WORKSPACE_SETTINGS_KEYS}
+    outputs = {key: st.session_state.get(key) for key in WORKSPACE_OUTPUT_KEYS}
+    history = st.session_state.get("ifs_history", [])
+    project_title = str(st.session_state.get("ifs_project_title", "Untitled Project"))
+    rough_cut_rows = outputs.get("ifs_rough_cut_timeline_rows") or []
+
+    return {
+        "saved_at": _workspace_now_iso(),
+        "project_title": project_title,
+        "settings": settings,
+        "outputs": outputs,
+        "history": history,
+        "summary": {
+            "has_script": bool(outputs.get("ifs_script_output")),
+            "has_storyboard": bool(outputs.get("ifs_storyboard_output")),
+            "has_edit": bool(outputs.get("ifs_edit_output")),
+            "has_rough_cut": bool(outputs.get("ifs_rough_cut_output")),
+            "has_deck": bool(outputs.get("ifs_deck_output")),
+            "rough_cut_flags": len(rough_cut_rows) if isinstance(rough_cut_rows, list) else 0,
+        },
+    }
+
+
+def _apply_workspace_snapshot(snapshot: dict[str, Any]) -> None:
+    settings = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    history = snapshot.get("history", []) if isinstance(snapshot, dict) else []
+
+    for key in WORKSPACE_SETTINGS_KEYS:
+        if key in settings:
+            st.session_state[key] = settings[key]
+    for key in WORKSPACE_OUTPUT_KEYS:
+        if key in outputs:
+            st.session_state[key] = outputs[key]
+    if isinstance(history, list):
+        st.session_state["ifs_history"] = history
+
+    title = str(settings.get("ifs_project_title") or snapshot.get("project_title") or "Untitled Project")
+    st.session_state["ifs_project_title"] = title
+    st.session_state["ifs_workspace_name"] = title
+
+
+def _empty_workspace_store(project_id: str, project_title: str) -> dict[str, Any]:
+    now = _workspace_now_iso()
+    return {
+        "project_id": project_id,
+        "project_title": project_title,
+        "created_at": now,
+        "updated_at": now,
+        "versions": [],
+    }
+
+
+def _read_workspace_store(project_id: str) -> dict[str, Any] | None:
+    if not project_id:
+        return None
+    path = _workspace_file(project_id)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload.setdefault("project_id", project_id)
+    payload.setdefault("project_title", project_id)
+    payload.setdefault("versions", [])
+    return payload
+
+
+def _write_workspace_store(store: dict[str, Any]) -> None:
+    project_id = str(store.get("project_id") or "").strip()
+    if not project_id:
+        raise ValueError("Workspace store missing project_id")
+    store["updated_at"] = _workspace_now_iso()
+    path = _workspace_file(project_id)
+    path.write_text(json.dumps(store, indent=2), encoding="utf-8")
+
+
+def _workspace_version_id(version_index: int) -> str:
+    return f"v{version_index:03d}"
+
+
+def _workspace_version_label(version: dict[str, Any]) -> str:
+    version_id = str(version.get("version_id", "v???"))
+    saved_at = str(version.get("saved_at", ""))
+    note = str(version.get("note", "")).strip()
+    if note:
+        return f"{version_id} • {saved_at} • {note}"
+    return f"{version_id} • {saved_at}"
+
+
+def _save_workspace_version(
+    project_name: str,
+    version_note: str,
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    clean_name = (project_name or "").strip() or str(snapshot.get("project_title") or "Untitled Project")
+    project_id = _slugify_workspace_name(clean_name)
+    store = _read_workspace_store(project_id) or _empty_workspace_store(project_id, clean_name)
+    store["project_title"] = clean_name
+
+    versions = store.setdefault("versions", [])
+    if not isinstance(versions, list):
+        versions = []
+        store["versions"] = versions
+
+    version_num = len(versions) + 1
+    version_entry = {
+        "version_id": _workspace_version_id(version_num),
+        "saved_at": _workspace_now_iso(),
+        "note": (version_note or "").strip(),
+        "snapshot": snapshot,
+    }
+    versions.append(version_entry)
+    _write_workspace_store(store)
+    return {
+        "project_id": project_id,
+        "version_id": version_entry["version_id"],
+        "store": store,
+        "version": version_entry,
+    }
+
+
+def _list_workspace_stores() -> list[dict[str, Any]]:
+    root = _workspace_root()
+    items: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        versions = payload.get("versions") if isinstance(payload.get("versions"), list) else []
+        latest = versions[-1] if versions else {}
+        latest_snapshot = latest.get("snapshot", {}) if isinstance(latest, dict) else {}
+        latest_summary = latest_snapshot.get("summary", {}) if isinstance(latest_snapshot, dict) else {}
+        items.append(
+            {
+                "project_id": str(payload.get("project_id") or path.stem),
+                "project_title": str(payload.get("project_title") or path.stem),
+                "version_count": len(versions),
+                "updated_at": str(payload.get("updated_at") or ""),
+                "latest_version_id": str((latest or {}).get("version_id", "")),
+                "latest_saved_at": str((latest or {}).get("saved_at", "")),
+                "latest_note": str((latest or {}).get("note", "")),
+                "latest_summary": latest_summary if isinstance(latest_summary, dict) else {},
+            }
+        )
+    items.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+    return items
+
+
+def _get_workspace_version(store: dict[str, Any], version_id: str) -> dict[str, Any] | None:
+    versions = store.get("versions") if isinstance(store, dict) else None
+    if not isinstance(versions, list):
+        return None
+    for version in versions:
+        if isinstance(version, dict) and str(version.get("version_id")) == str(version_id):
+            return version
+    return None
+
+
+def _compare_workspace_snapshots(
+    left_snapshot: dict[str, Any],
+    right_snapshot: dict[str, Any],
+    left_label: str,
+    right_label: str,
+) -> tuple[str, dict[str, str]]:
+    summary_lines = ["### Version Compare"]
+    diff_map: dict[str, str] = {}
+
+    changed_sections = 0
+    for section_name, field_key in WORKSPACE_COMPARE_FIELDS.items():
+        left_text = _snapshot_section_text(left_snapshot, field_key)
+        right_text = _snapshot_section_text(right_snapshot, field_key)
+        if left_text == right_text:
+            summary_lines.append(f"- {section_name}: unchanged")
+            continue
+
+        changed_sections += 1
+        left_lines = left_text.splitlines()
+        right_lines = right_text.splitlines()
+        delta = list(
+            difflib.unified_diff(
+                left_lines,
+                right_lines,
+                fromfile=f"{left_label}:{section_name}",
+                tofile=f"{right_label}:{section_name}",
+                lineterm="",
+                n=1,
+            )
+        )
+        diff_map[section_name] = "\n".join(delta) if delta else "(content changed)"
+        summary_lines.append(
+            f"- {section_name}: changed ({len(left_text)} -> {len(right_text)} chars)"
+        )
+
+    left_settings = left_snapshot.get("settings", {}) if isinstance(left_snapshot, dict) else {}
+    right_settings = right_snapshot.get("settings", {}) if isinstance(right_snapshot, dict) else {}
+    key_settings = ["ifs_genre", "ifs_tone", "ifs_camera_style", "ifs_palette", "ifs_energy", "ifs_pace"]
+    setting_changes = []
+    for key in key_settings:
+        if left_settings.get(key) != right_settings.get(key):
+            setting_changes.append(f"{key}: {left_settings.get(key)} -> {right_settings.get(key)}")
+    if setting_changes:
+        summary_lines.append("- Settings changes: " + "; ".join(setting_changes))
+    else:
+        summary_lines.append("- Settings changes: none in tracked look/pacing fields")
+
+    if changed_sections == 0 and not setting_changes:
+        summary_lines.append("- Overall: snapshots are materially identical in tracked outputs/settings.")
+
+    return "\n".join(summary_lines), diff_map
+
+
+def _markdown_table_rows(markdown_text: str) -> list[dict[str, str]]:
+    lines = markdown_text.splitlines()
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("|") and line.endswith("|"):
+            current.append(line)
+            continue
+        if current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    if not blocks:
+        return []
+
+    for block in blocks:
+        if len(block) < 3:
+            continue
+        header_cells = [cell.strip() for cell in block[0].strip("|").split("|")]
+        separator_cells = [cell.strip() for cell in block[1].strip("|").split("|")]
+        if not header_cells or not all(set(cell) <= {"-", ":"} for cell in separator_cells):
+            continue
+        rows: list[dict[str, str]] = []
+        for data_line in block[2:]:
+            values = [cell.strip() for cell in data_line.strip("|").split("|")]
+            if len(values) != len(header_cells):
+                continue
+            rows.append(dict(zip(header_cells, values)))
+        if rows:
+            return rows
+    return []
+
+
+def _storyboard_to_shot_rows(storyboard_markdown: str) -> list[dict[str, str]]:
+    table_rows = _markdown_table_rows(storyboard_markdown)
+    if not table_rows:
+        return []
+
+    shot_rows: list[dict[str, str]] = []
+    for idx, row in enumerate(table_rows, 1):
+        normalized = {str(k).strip().lower(): str(v).strip() for k, v in row.items()}
+        frame = normalized.get("frame", str(idx))
+        shot_rows.append(
+            {
+                "shot_number": str(idx),
+                "frame": frame,
+                "camera": normalized.get("camera", ""),
+                "visual": normalized.get("visual", ""),
+                "sound": normalized.get("sound", ""),
+            }
+        )
+    return shot_rows
+
+
+def _shot_list_csv(storyboard_markdown: str) -> str:
+    rows = _storyboard_to_shot_rows(storyboard_markdown)
+    if not rows:
+        return ""
+    out = io.StringIO()
+    fieldnames = ["shot_number", "frame", "camera", "visual", "sound"]
+    writer = csv.DictWriter(out, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return out.getvalue()
+
+
+def _extract_script_section(script_markdown: str, heading: str) -> str:
+    if not script_markdown.strip():
+        return ""
+    pattern = re.compile(
+        rf"^###\s+{re.escape(heading)}\s*$([\s\S]*?)(?=^###\s+|\Z)",
+        re.MULTILINE,
+    )
+    match = pattern.search(script_markdown)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _script_to_fountain(snapshot: dict[str, Any]) -> str:
+    settings = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    script_markdown = str(outputs.get("ifs_script_output") or "")
+    project_title = str(settings.get("ifs_project_title") or snapshot.get("project_title") or "Untitled Project")
+    tone = str(settings.get("ifs_tone") or "")
+    genre = str(settings.get("ifs_genre") or "")
+
+    logline = _extract_script_section(script_markdown, "Logline")
+    beats = _extract_script_section(script_markdown, "8-Beat Outline")
+    scene_excerpt = _extract_script_section(script_markdown, "Scene Excerpt")
+    if scene_excerpt.startswith("```"):
+        scene_excerpt = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", scene_excerpt)
+        scene_excerpt = re.sub(r"\n```$", "", scene_excerpt).strip()
+
+    if not scene_excerpt:
+        premise = str(settings.get("ifs_script_prompt") or "").strip()
+        scene_excerpt = premise or "INT. STUDIO - NIGHT\n\nA new sequence is prepared."
+
+    lines = [
+        f"Title: {project_title}",
+        "Credit: Generated with Infinity Film Studio",
+        "Author: Director Console",
+        f"Draft date: {datetime.now().strftime('%Y-%m-%d')}",
+        "",
+        f"[[Genre: {genre} | Tone: {tone}]]",
+    ]
+    if logline:
+        lines.extend(["", "# Logline", "", logline])
+    if beats:
+        lines.extend(["", "# Beat Outline", "", beats])
+    lines.extend(["", "# Scene Excerpt", "", scene_excerpt.strip(), ""])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _workspace_markdown_bundle(snapshot: dict[str, Any]) -> str:
+    settings = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    history = snapshot.get("history", []) if isinstance(snapshot, dict) else []
+    summary = snapshot.get("summary", {}) if isinstance(snapshot, dict) else {}
+
+    project_title = str(settings.get("ifs_project_title") or snapshot.get("project_title") or "Untitled Project")
+    generated_at = str(snapshot.get("saved_at") or _workspace_now_iso())
+
+    lines = [
+        f"# {project_title} Workspace Bundle",
+        "",
+        f"- Saved at: {generated_at}",
+        f"- Genre/Tone: {settings.get('ifs_genre', '')} / {settings.get('ifs_tone', '')}",
+        f"- Camera/Palette: {settings.get('ifs_camera_style', '')} / {settings.get('ifs_palette', '')}",
+        f"- Energy/Pace: {settings.get('ifs_energy', '')} / {settings.get('ifs_pace', '')}",
+        f"- Rough cut flags: {summary.get('rough_cut_flags', 0)}",
+        "",
+        "## Inputs",
+        "",
+        f"- Script prompt: {settings.get('ifs_script_prompt', '')}",
+        f"- Storyboard prompt: {settings.get('ifs_story_prompt', '')}",
+        f"- Edit objective: {settings.get('ifs_edit_objective', '')}",
+        "",
+    ]
+
+    sections = [
+        ("Script Pack", "ifs_script_output"),
+        ("Storyboard", "ifs_storyboard_output"),
+        ("Edit Notes", "ifs_edit_output"),
+        ("Rough Cut Review", "ifs_rough_cut_output"),
+        ("Director Deck", "ifs_deck_output"),
+    ]
+    for title, key in sections:
+        content = str(outputs.get(key) or "").strip()
+        lines.extend([f"## {title}", ""])
+        lines.append(content if content else "_Not generated yet._")
+        lines.append("")
+
+    timeline_rows = outputs.get("ifs_rough_cut_timeline_rows")
+    if isinstance(timeline_rows, list) and timeline_rows:
+        lines.extend(["## Rough Cut Timeline Flags", "", _rough_cut_table_markdown(timeline_rows), ""])
+
+    if isinstance(history, list) and history:
+        lines.extend(["## Session History (Recent)", ""])
+        for item in history[:10]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- [{item.get('kind', '')}] {item.get('title', '')} ({item.get('time', '')})")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _simple_text_pdf_bytes(title: str, body: str) -> bytes:
+    all_lines: list[str] = []
+    for raw in body.splitlines():
+        wrapped = textwrap.wrap(raw, width=96, replace_whitespace=False) or [""]
+        all_lines.extend(wrapped)
+
+    lines_per_page = 46
+    pages = [all_lines[i : i + lines_per_page] for i in range(0, len(all_lines), lines_per_page)] or [[]]
+
+    objects: list[bytes] = []
+
+    def add_object(obj: bytes) -> int:
+        objects.append(obj)
+        return len(objects)
+
+    catalog_id = add_object(b"<< /Type /Catalog /Pages 2 0 R >>")
+    pages_id = add_object(b"<< /Type /Pages /Count 0 /Kids [] >>")  # replaced later
+    font_id = add_object(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    page_ids: list[int] = []
+    for page_index, page_lines in enumerate(pages, 1):
+        content_commands = ["BT", "/F1 10 Tf", "50 780 Td", "14 TL"]
+        content_commands.append(f"({ _pdf_escape(title + f' (Page {page_index}/{len(pages)})') }) Tj")
+        content_commands.append("T*")
+        content_commands.append("T*")
+        for line in page_lines:
+            content_commands.append(f"({_pdf_escape(line)}) Tj")
+            content_commands.append("T*")
+        content_commands.append("ET")
+        content_bytes = ("\n".join(content_commands) + "\n").encode("latin-1", errors="replace")
+        content_id = add_object(
+            b"<< /Length %d >>\nstream\n" % len(content_bytes) + content_bytes + b"endstream"
+        )
+        page_id = add_object(
+            (
+                "<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] "
+                "/Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>"
+            ).format(pages=pages_id, font=font_id, content=content_id).encode("ascii")
+        )
+        page_ids.append(page_id)
+
+    kids_refs = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects[pages_id - 1] = (
+        f"<< /Type /Pages /Count {len(page_ids)} /Kids [{kids_refs}] >>".encode("ascii")
+    )
+
+    pdf = bytearray()
+    pdf.extend(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for obj_id, obj in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{obj_id} 0 obj\n".encode("ascii"))
+        pdf.extend(obj)
+        pdf.extend(b"\nendobj\n")
+
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects)+1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        (
+            "trailer\n<< /Size {size} /Root {root} 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        ).format(size=len(objects) + 1, root=catalog_id, xref=xref_offset).encode("ascii")
+    )
+    return bytes(pdf)
+
+
+def _snapshot_pdf_deck(snapshot: dict[str, Any]) -> bytes:
+    settings = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    title = str(settings.get("ifs_project_title") or snapshot.get("project_title") or "Director Deck")
+    deck = str(outputs.get("ifs_deck_output") or "").strip()
+    rough_cut = str(outputs.get("ifs_rough_cut_output") or "").strip()
+    body = deck or rough_cut or str(outputs.get("ifs_edit_output") or "").strip() or "No deck generated yet."
+    return _simple_text_pdf_bytes(f"{title} - Director Deck", body)
+
+
+def _workspace_export_payloads(snapshot: dict[str, Any]) -> dict[str, tuple[str, Any, str]]:
+    outputs = snapshot.get("outputs", {}) if isinstance(snapshot, dict) else {}
+    title = str(snapshot.get("project_title") or "project").strip() or "project"
+    slug = _slugify_workspace_name(title)
+    storyboard_md = str((outputs or {}).get("ifs_storyboard_output") or "")
+
+    return {
+        "bundle_md": (f"{slug}_workspace_bundle.md", _workspace_markdown_bundle(snapshot), "text/markdown"),
+        "fountain": (f"{slug}_script.fountain", _script_to_fountain(snapshot), "text/plain"),
+        "shot_csv": (f"{slug}_shot_list.csv", _shot_list_csv(storyboard_md), "text/csv"),
+        "deck_pdf": (f"{slug}_director_deck.pdf", _snapshot_pdf_deck(snapshot), "application/pdf"),
+        "project_json": (f"{slug}_workspace_snapshot.json", json.dumps(snapshot, indent=2), "application/json"),
+    }
 
 
 def _fallback_script_pack(
@@ -2284,6 +2860,271 @@ def _deck_tab(ai_client: Any) -> None:
         )
 
 
+def _workspace_tab() -> None:
+    st.subheader("Project Workspace")
+    st.caption("Save full project snapshots, compare versions, and export production-ready files.")
+
+    if not str(st.session_state.get("ifs_workspace_name", "")).strip():
+        st.session_state["ifs_workspace_name"] = str(st.session_state.get("ifs_project_title", "Untitled Project"))
+
+    current_snapshot = _capture_workspace_snapshot()
+    current_summary = current_snapshot.get("summary", {}) if isinstance(current_snapshot, dict) else {}
+    saved_workspaces = _list_workspace_stores()
+
+    save_col, summary_col = st.columns([1.15, 1.0], gap="large")
+    with save_col:
+        st.text_input("Workspace name", key="ifs_workspace_name")
+        st.text_input(
+            "Version note (optional)",
+            key="ifs_workspace_version_note",
+            help="Examples: v2 pacing pass, after director review, rough-cut annotations added.",
+        )
+        save_btn_cols = st.columns(2)
+        if save_btn_cols[0].button("Save New Version", type="primary", use_container_width=True):
+            result = _save_workspace_version(
+                project_name=str(st.session_state["ifs_workspace_name"]),
+                version_note=str(st.session_state.get("ifs_workspace_version_note", "")),
+                snapshot=current_snapshot,
+            )
+            project_id = str(result["project_id"])
+            version_id = str(result["version_id"])
+            st.session_state["ifs_workspace_selected_id"] = project_id
+            st.session_state["ifs_workspace_compare_left"] = version_id
+            st.session_state["ifs_workspace_compare_right"] = version_id
+            st.session_state["ifs_workspace_version_note"] = ""
+            st.session_state["ifs_status_line"] = f"Workspace saved: {project_id} {version_id}"
+            st.success(f"Saved `{project_id}` as {version_id}.")
+            _rerun()
+        if save_btn_cols[1].button("Sync Name From Project", use_container_width=True):
+            st.session_state["ifs_workspace_name"] = str(st.session_state.get("ifs_project_title", "Untitled Project"))
+            st.session_state["ifs_status_line"] = "Workspace name synced from project title."
+            _rerun()
+
+    with summary_col:
+        st.markdown("#### Current Snapshot")
+        metrics = st.columns(3)
+        metrics[0].metric("Saved Workspaces", str(len(saved_workspaces)))
+        metrics[1].metric(
+            "Generated Sections",
+            str(
+                sum(
+                    1
+                    for flag_key in ("has_script", "has_storyboard", "has_edit", "has_rough_cut", "has_deck")
+                    if current_summary.get(flag_key)
+                )
+            ),
+        )
+        metrics[2].metric("Rough-Cut Flags", str(current_summary.get("rough_cut_flags", 0)))
+        st.caption(
+            "Snapshot includes settings, script/storyboard/edit/rough-cut/deck outputs, timeline flags, and session history."
+        )
+
+    st.markdown("#### Export")
+    export_source = st.radio(
+        "Export source",
+        ["Current session", "Selected saved version"],
+        horizontal=True,
+        key="ifs_workspace_export_source",
+    )
+
+    selected_store: dict[str, Any] | None = None
+    selected_version: dict[str, Any] | None = None
+    versions: list[dict[str, Any]] = []
+
+    if saved_workspaces:
+        st.markdown("#### Saved Workspaces")
+        workspace_ids = [item["project_id"] for item in saved_workspaces]
+        default_index = 0
+        if st.session_state.get("ifs_workspace_selected_id") in workspace_ids:
+            default_index = workspace_ids.index(st.session_state["ifs_workspace_selected_id"])
+
+        selected_workspace_id = st.selectbox(
+            "Choose workspace",
+            workspace_ids,
+            index=default_index,
+            format_func=lambda pid: next(
+                (
+                    f"{item['project_title']} ({item['project_id']}) • {item['version_count']} versions"
+                    for item in saved_workspaces
+                    if item["project_id"] == pid
+                ),
+                pid,
+            ),
+            key="ifs_workspace_selected_id",
+        )
+
+        selected_store = _read_workspace_store(selected_workspace_id)
+        if selected_store:
+            versions = selected_store.get("versions") if isinstance(selected_store.get("versions"), list) else []
+            if versions:
+                st.markdown(
+                    f"**Workspace:** `{selected_store.get('project_title', selected_workspace_id)}` • "
+                    f"`{len(versions)}` versions"
+                )
+            else:
+                st.info("This workspace file has no versions yet.")
+
+            if versions:
+                version_ids = [str(version.get("version_id")) for version in versions]
+                latest_version_id = version_ids[-1]
+
+                if st.session_state.get("ifs_workspace_compare_right") not in version_ids:
+                    st.session_state["ifs_workspace_compare_right"] = latest_version_id
+                if st.session_state.get("ifs_workspace_compare_left") not in version_ids:
+                    st.session_state["ifs_workspace_compare_left"] = version_ids[0]
+
+                version_lookup = {str(v.get("version_id")): v for v in versions if isinstance(v, dict)}
+
+                action_cols = st.columns(2)
+                load_version_id = st.selectbox(
+                    "Load version into current session",
+                    version_ids,
+                    index=version_ids.index(st.session_state["ifs_workspace_compare_right"]),
+                    format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
+                    key="ifs_workspace_load_version",
+                )
+                if action_cols[0].button("Load Selected Version", use_container_width=True):
+                    version = version_lookup.get(load_version_id)
+                    if version and isinstance(version.get("snapshot"), dict):
+                        _apply_workspace_snapshot(version["snapshot"])
+                        st.session_state["ifs_status_line"] = f"Loaded workspace {selected_workspace_id} {load_version_id}."
+                        _rerun()
+                if action_cols[1].button("Load Latest Version", use_container_width=True):
+                    version = version_lookup.get(latest_version_id)
+                    if version and isinstance(version.get("snapshot"), dict):
+                        _apply_workspace_snapshot(version["snapshot"])
+                        st.session_state["ifs_status_line"] = f"Loaded workspace {selected_workspace_id} {latest_version_id}."
+                        _rerun()
+
+                st.markdown("#### Version Compare")
+                compare_cols = st.columns(2)
+                left_version_id = compare_cols[0].selectbox(
+                    "Left version",
+                    version_ids,
+                    index=version_ids.index(st.session_state["ifs_workspace_compare_left"]),
+                    format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
+                    key="ifs_workspace_compare_left",
+                )
+                right_version_id = compare_cols[1].selectbox(
+                    "Right version",
+                    version_ids,
+                    index=version_ids.index(st.session_state["ifs_workspace_compare_right"]),
+                    format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
+                    key="ifs_workspace_compare_right",
+                )
+                left_version = version_lookup.get(left_version_id)
+                right_version = version_lookup.get(right_version_id)
+                if left_version and right_version:
+                    left_snapshot = left_version.get("snapshot", {})
+                    right_snapshot = right_version.get("snapshot", {})
+                    if isinstance(left_snapshot, dict) and isinstance(right_snapshot, dict):
+                        summary_md, diff_map = _compare_workspace_snapshots(
+                            left_snapshot,
+                            right_snapshot,
+                            left_version_id,
+                            right_version_id,
+                        )
+                        st.markdown(summary_md)
+                        if diff_map:
+                            diff_fields = list(diff_map.keys())
+                            field_default = 0
+                            if st.session_state.get("ifs_workspace_compare_field") in diff_fields:
+                                field_default = diff_fields.index(st.session_state["ifs_workspace_compare_field"])
+                            chosen_field = st.selectbox(
+                                "Diff section",
+                                diff_fields,
+                                index=field_default,
+                                key="ifs_workspace_compare_field",
+                            )
+                            st.code(diff_map.get(chosen_field, ""), language="diff")
+                        else:
+                            st.info("No tracked output differences between the selected versions.")
+
+                st.markdown("#### Version History")
+                for version in reversed(versions[-12:]):
+                    if not isinstance(version, dict):
+                        continue
+                    snapshot = version.get("snapshot", {})
+                    snapshot_summary = snapshot.get("summary", {}) if isinstance(snapshot, dict) else {}
+                    st.markdown(
+                        f"- `{version.get('version_id', '')}` • {version.get('saved_at', '')} • "
+                        f"{version.get('note', '') or 'No note'} "
+                        f"(script:{'Y' if snapshot_summary.get('has_script') else 'N'}, "
+                        f"story:{'Y' if snapshot_summary.get('has_storyboard') else 'N'}, "
+                        f"edit:{'Y' if snapshot_summary.get('has_edit') else 'N'}, "
+                        f"rough:{'Y' if snapshot_summary.get('has_rough_cut') else 'N'}, "
+                        f"deck:{'Y' if snapshot_summary.get('has_deck') else 'N'})"
+                    )
+
+                selected_version = version_lookup.get(str(st.session_state.get("ifs_workspace_compare_right")))
+
+    else:
+        st.info("No saved workspaces yet. Create your first version with `Save New Version`.")
+
+    export_snapshot = current_snapshot
+    if export_source == "Selected saved version":
+        if selected_version and isinstance(selected_version.get("snapshot"), dict):
+            export_snapshot = selected_version["snapshot"]
+        else:
+            st.warning("No saved version selected yet. Exporting current session instead.")
+
+    export_payloads = _workspace_export_payloads(export_snapshot)
+    export_cols_top = st.columns(3)
+    export_cols_bottom = st.columns(2)
+
+    bundle_name, bundle_data, bundle_mime = export_payloads["bundle_md"]
+    export_cols_top[0].download_button(
+        "Markdown Bundle",
+        data=bundle_data,
+        file_name=bundle_name,
+        mime=bundle_mime,
+        use_container_width=True,
+        key="dl_workspace_bundle",
+    )
+
+    fountain_name, fountain_data, fountain_mime = export_payloads["fountain"]
+    export_cols_top[1].download_button(
+        "Fountain Script",
+        data=fountain_data,
+        file_name=fountain_name,
+        mime=fountain_mime,
+        use_container_width=True,
+        key="dl_workspace_fountain",
+    )
+
+    shot_name, shot_data, shot_mime = export_payloads["shot_csv"]
+    export_cols_top[2].download_button(
+        "CSV Shot List",
+        data=shot_data,
+        file_name=shot_name,
+        mime=shot_mime,
+        use_container_width=True,
+        key="dl_workspace_shots",
+        disabled=not bool(str(shot_data).strip()),
+        help="Generate a storyboard first to export a shot list.",
+    )
+
+    pdf_name, pdf_data, pdf_mime = export_payloads["deck_pdf"]
+    export_cols_bottom[0].download_button(
+        "PDF Deck",
+        data=pdf_data,
+        file_name=pdf_name,
+        mime=pdf_mime,
+        use_container_width=True,
+        key="dl_workspace_pdf",
+    )
+
+    json_name, json_data, json_mime = export_payloads["project_json"]
+    export_cols_bottom[1].download_button(
+        "Workspace JSON",
+        data=json_data,
+        file_name=json_name,
+        mime=json_mime,
+        use_container_width=True,
+        key="dl_workspace_json",
+    )
+
+
 def _history_tab() -> None:
     st.subheader("Recent Generations")
     st.caption("Latest outputs from this session. You can restore prompts directly.")
@@ -2342,8 +3183,8 @@ def main() -> None:
 
     concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
 
-    tab_script, tab_storyboard, tab_edit, tab_deck, tab_history = st.tabs(
-        ["Script Copilot", "Storyboard", "Edit Review", "Director Deck", "History"]
+    tab_script, tab_storyboard, tab_edit, tab_deck, tab_workspace, tab_history = st.tabs(
+        ["Script Copilot", "Storyboard", "Edit Review", "Director Deck", "Workspace", "History"]
     )
 
     with tab_script:
@@ -2357,6 +3198,9 @@ def main() -> None:
 
     with tab_deck:
         _deck_tab(ai_client)
+
+    with tab_workspace:
+        _workspace_tab()
 
     with tab_history:
         _history_tab()

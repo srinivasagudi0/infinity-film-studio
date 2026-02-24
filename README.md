@@ -8,6 +8,7 @@ AI-assisted filmmaking suite covering script writing, video edit guidance, and s
 - Script Copilot chat with session persistence and lightweight memory summarization
 - One-shot scene, storyboard frame, and edit suggestions
 - Rough-cut analyzer in Streamlit with timestamped edit flags, metadata probing, and CSV/JSON timeline exports
+- Persistent Streamlit project workspace with local save/load version history, compare diffs, and exports (Markdown bundle, Fountain, CSV shot list, PDF deck)
 - Video review endpoint that accepts uploads and returns AI notes (uses ffmpeg metadata when available)
 - Web UI (React) plus CLI and Tkinter desktop placeholders
 - Docker image that serves the built frontend + API on port 8000
