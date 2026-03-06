@@ -41,6 +41,8 @@ if load_dotenv is not None:  # pragma: no branch
 SECRET_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+    "OPENAI_CHAT_MODEL",
     "OPENAI_DEFAULT_CHAT_MODEL",
     "OPENAI_API_KEY_FALLBACK",
     "OPENAI_BASE_URL_FALLBACK",
@@ -69,6 +71,8 @@ def _hydrate_env_from_streamlit_secrets() -> None:
         mapping = {
             "api_key": "OPENAI_API_KEY",
             "base_url": "OPENAI_BASE_URL",
+            "model": "OPENAI_DEFAULT_CHAT_MODEL",
+            "chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
             "default_chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
             "fallback_openai_model": "OPENAI_FALLBACK_OPENAI_MODEL",
         }
@@ -76,6 +80,15 @@ def _hydrate_env_from_streamlit_secrets() -> None:
             value = openai_block.get(secret_key)
             if isinstance(value, str) and value.strip() and not os.getenv(env_key):
                 os.environ[env_key] = value.strip()
+
+    alias_mapping = {
+        "OPENAI_MODEL": "OPENAI_DEFAULT_CHAT_MODEL",
+        "OPENAI_CHAT_MODEL": "OPENAI_DEFAULT_CHAT_MODEL",
+    }
+    for secret_key, env_key in alias_mapping.items():
+        value = secrets.get(secret_key)
+        if isinstance(value, str) and value.strip() and not os.getenv(env_key):
+            os.environ[env_key] = value.strip()
 
     for key in SECRET_ENV_KEYS:
         value = secrets.get(key)
