@@ -807,6 +807,33 @@ def _randomize_profile() -> None:
     st.session_state["ifs_status_line"] = "Profile randomized for a fresh direction."
 
 
+def _set_state_value(key: str, value: Any, status_line: str | None = None) -> None:
+    st.session_state[key] = value
+    if status_line is not None:
+        st.session_state["ifs_status_line"] = status_line
+
+
+def _sync_workspace_name_from_project() -> None:
+    title = str(st.session_state.get("ifs_project_title", "Untitled Project"))
+    st.session_state["ifs_workspace_name"] = title
+    st.session_state["ifs_status_line"] = "Workspace name synced from project title."
+
+
+def _save_workspace_from_snapshot(snapshot: dict[str, Any]) -> None:
+    result = _save_workspace_version(
+        project_name=str(st.session_state["ifs_workspace_name"]),
+        version_note=str(st.session_state.get("ifs_workspace_version_note", "")),
+        snapshot=snapshot,
+    )
+    project_id = str(result["project_id"])
+    version_id = str(result["version_id"])
+    st.session_state["ifs_workspace_selected_id"] = project_id
+    st.session_state["ifs_workspace_compare_left"] = version_id
+    st.session_state["ifs_workspace_compare_right"] = version_id
+    st.session_state["ifs_workspace_version_note"] = ""
+    st.session_state["ifs_status_line"] = f"Workspace saved: {project_id} {version_id}"
+
+
 def _rotate_value(values: Sequence[str], current: str) -> str:
     if current not in values:
         return values[0]
@@ -1363,6 +1390,11 @@ def _apply_workspace_snapshot(snapshot: dict[str, Any]) -> None:
     title = str(settings.get("ifs_project_title") or snapshot.get("project_title") or "Untitled Project")
     st.session_state["ifs_project_title"] = title
     st.session_state["ifs_workspace_name"] = title
+
+
+def _load_workspace_snapshot(snapshot: dict[str, Any], status_line: str) -> None:
+    _apply_workspace_snapshot(snapshot)
+    st.session_state["ifs_status_line"] = status_line
 
 
 def _empty_workspace_store(project_id: str, project_title: str) -> dict[str, Any]:
@@ -2194,20 +2226,33 @@ def _top_section(demo_mode: bool, ai_client: Any) -> None:
         _progress("Profile Balance", max(0, 100 - abs(st.session_state["ifs_energy"] - st.session_state["ifs_pace"])))
 
     action_cols = st.columns(4)
-    if action_cols[0].button("Boost Energy", key="boost_energy", use_container_width=True):
-        st.session_state["ifs_energy"] = min(100, st.session_state["ifs_energy"] + 6)
-        st.session_state["ifs_status_line"] = "Energy boosted by +6."
-        _rerun()
+    action_cols[0].button(
+        "Boost Energy",
+        key="boost_energy",
+        use_container_width=True,
+        on_click=_set_state_value,
+        args=("ifs_energy", min(100, st.session_state["ifs_energy"] + 6), "Energy boosted by +6."),
+    )
 
-    if action_cols[1].button("Soften Pace", key="soften_pace", use_container_width=True):
-        st.session_state["ifs_pace"] = max(0, st.session_state["ifs_pace"] - 6)
-        st.session_state["ifs_status_line"] = "Pace reduced by -6 for controlled cadence."
-        _rerun()
+    action_cols[1].button(
+        "Soften Pace",
+        key="soften_pace",
+        use_container_width=True,
+        on_click=_set_state_value,
+        args=("ifs_pace", max(0, st.session_state["ifs_pace"] - 6), "Pace reduced by -6 for controlled cadence."),
+    )
 
-    if action_cols[2].button("Remix Tone", key="remix_tone_top", use_container_width=True):
-        st.session_state["ifs_tone"] = _rotate_value(TONES, st.session_state["ifs_tone"])
-        st.session_state["ifs_status_line"] = f"Tone remixed to {st.session_state['ifs_tone']}."
-        _rerun()
+    action_cols[2].button(
+        "Remix Tone",
+        key="remix_tone_top",
+        use_container_width=True,
+        on_click=_set_state_value,
+        args=(
+            "ifs_tone",
+            _rotate_value(TONES, st.session_state["ifs_tone"]),
+            f"Tone remixed to {_rotate_value(TONES, st.session_state['ifs_tone'])}.",
+        ),
+    )
 
     if action_cols[3].button("Sync Concept", key="sync_concept", use_container_width=True):
         st.session_state["ifs_script_prompt"] = concept
@@ -2323,10 +2368,17 @@ def _storyboard_tab(ai_client: Any) -> None:
     st.slider("Frames", 4, 12, key="ifs_frame_count")
 
     col_a, col_b, col_c = st.columns(3)
-    if col_a.button("Use Script Premise", key="use_script_premise", use_container_width=True):
-        st.session_state["ifs_story_prompt"] = st.session_state["ifs_script_prompt"]
-        st.session_state["ifs_status_line"] = "Storyboard prompt loaded from script premise."
-        _rerun()
+    col_a.button(
+        "Use Script Premise",
+        key="use_script_premise",
+        use_container_width=True,
+        on_click=_set_state_value,
+        args=(
+            "ifs_story_prompt",
+            st.session_state["ifs_script_prompt"],
+            "Storyboard prompt loaded from script premise.",
+        ),
+    )
     focus_override = col_b.selectbox("Shot Focus", FOCUS_AREAS, index=FOCUS_AREAS.index(st.session_state["ifs_focus"]))
     generate = col_c.button("Generate Shot Grid", type="primary", use_container_width=True)
 
@@ -2880,25 +2932,22 @@ def _workspace_tab() -> None:
             help="Examples: v2 pacing pass, after director review, rough-cut annotations added.",
         )
         save_btn_cols = st.columns(2)
-        if save_btn_cols[0].button("Save New Version", type="primary", use_container_width=True):
-            result = _save_workspace_version(
-                project_name=str(st.session_state["ifs_workspace_name"]),
-                version_note=str(st.session_state.get("ifs_workspace_version_note", "")),
-                snapshot=current_snapshot,
+        save_clicked = save_btn_cols[0].button(
+            "Save New Version",
+            type="primary",
+            use_container_width=True,
+            on_click=_save_workspace_from_snapshot,
+            args=(current_snapshot,),
+        )
+        save_btn_cols[1].button(
+            "Sync Name From Project",
+            use_container_width=True,
+            on_click=_sync_workspace_name_from_project,
+        )
+        if save_clicked:
+            st.success(
+                f"Saved `{st.session_state['ifs_workspace_selected_id']}` as `{st.session_state['ifs_workspace_compare_right']}`."
             )
-            project_id = str(result["project_id"])
-            version_id = str(result["version_id"])
-            st.session_state["ifs_workspace_selected_id"] = project_id
-            st.session_state["ifs_workspace_compare_left"] = version_id
-            st.session_state["ifs_workspace_compare_right"] = version_id
-            st.session_state["ifs_workspace_version_note"] = ""
-            st.session_state["ifs_status_line"] = f"Workspace saved: {project_id} {version_id}"
-            st.success(f"Saved `{project_id}` as {version_id}.")
-            _rerun()
-        if save_btn_cols[1].button("Sync Name From Project", use_container_width=True):
-            st.session_state["ifs_workspace_name"] = str(st.session_state.get("ifs_project_title", "Untitled Project"))
-            st.session_state["ifs_status_line"] = "Workspace name synced from project title."
-            _rerun()
 
     with summary_col:
         st.markdown("#### Current Snapshot")
@@ -2967,11 +3016,14 @@ def _workspace_tab() -> None:
             if versions:
                 version_ids = [str(version.get("version_id")) for version in versions]
                 latest_version_id = version_ids[-1]
-
-                if st.session_state.get("ifs_workspace_compare_right") not in version_ids:
-                    st.session_state["ifs_workspace_compare_right"] = latest_version_id
-                if st.session_state.get("ifs_workspace_compare_left") not in version_ids:
-                    st.session_state["ifs_workspace_compare_left"] = version_ids[0]
+                current_left = str(st.session_state.get("ifs_workspace_compare_left", ""))
+                current_right = str(st.session_state.get("ifs_workspace_compare_right", ""))
+                if current_right not in version_ids:
+                    current_right = latest_version_id
+                    st.session_state["ifs_workspace_compare_right"] = current_right
+                if current_left not in version_ids:
+                    current_left = version_ids[0]
+                    st.session_state["ifs_workspace_compare_left"] = current_left
 
                 version_lookup = {str(v.get("version_id")): v for v in versions if isinstance(v, dict)}
 
@@ -2979,36 +3031,50 @@ def _workspace_tab() -> None:
                 load_version_id = st.selectbox(
                     "Load version into current session",
                     version_ids,
-                    index=version_ids.index(st.session_state["ifs_workspace_compare_right"]),
+                    index=version_ids.index(current_right),
                     format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
                     key="ifs_workspace_load_version",
                 )
-                if action_cols[0].button("Load Selected Version", use_container_width=True):
-                    version = version_lookup.get(load_version_id)
-                    if version and isinstance(version.get("snapshot"), dict):
-                        _apply_workspace_snapshot(version["snapshot"])
-                        st.session_state["ifs_status_line"] = f"Loaded workspace {selected_workspace_id} {load_version_id}."
-                        _rerun()
-                if action_cols[1].button("Load Latest Version", use_container_width=True):
-                    version = version_lookup.get(latest_version_id)
-                    if version and isinstance(version.get("snapshot"), dict):
-                        _apply_workspace_snapshot(version["snapshot"])
-                        st.session_state["ifs_status_line"] = f"Loaded workspace {selected_workspace_id} {latest_version_id}."
-                        _rerun()
+                selected_load_snapshot = version_lookup.get(load_version_id, {}).get("snapshot")
+                latest_load_snapshot = version_lookup.get(latest_version_id, {}).get("snapshot")
+                if isinstance(selected_load_snapshot, dict):
+                    action_cols[0].button(
+                        "Load Selected Version",
+                        use_container_width=True,
+                        on_click=_load_workspace_snapshot,
+                        args=(
+                            selected_load_snapshot,
+                            f"Loaded workspace {selected_workspace_id} {load_version_id}.",
+                        ),
+                    )
+                else:
+                    action_cols[0].button("Load Selected Version", use_container_width=True, disabled=True)
+                if isinstance(latest_load_snapshot, dict):
+                    action_cols[1].button(
+                        "Load Latest Version",
+                        use_container_width=True,
+                        on_click=_load_workspace_snapshot,
+                        args=(
+                            latest_load_snapshot,
+                            f"Loaded workspace {selected_workspace_id} {latest_version_id}.",
+                        ),
+                    )
+                else:
+                    action_cols[1].button("Load Latest Version", use_container_width=True, disabled=True)
 
                 st.markdown("#### Version Compare")
                 compare_cols = st.columns(2)
                 left_version_id = compare_cols[0].selectbox(
                     "Left version",
                     version_ids,
-                    index=version_ids.index(st.session_state["ifs_workspace_compare_left"]),
+                    index=version_ids.index(current_left),
                     format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
                     key="ifs_workspace_compare_left",
                 )
                 right_version_id = compare_cols[1].selectbox(
                     "Right version",
                     version_ids,
-                    index=version_ids.index(st.session_state["ifs_workspace_compare_right"]),
+                    index=version_ids.index(current_right),
                     format_func=lambda vid: _workspace_version_label(version_lookup[vid]),
                     key="ifs_workspace_compare_right",
                 )
@@ -3148,14 +3214,20 @@ def _history_tab() -> None:
         )
 
         btn_a, btn_b, btn_c = st.columns(3)
-        if btn_a.button("Use As Script", key=f"hist_script_{index}", use_container_width=True):
-            st.session_state["ifs_script_prompt"] = item["content"][:700]
-            st.session_state["ifs_status_line"] = "History item loaded into script premise."
-            _rerun()
-        if btn_b.button("Use As Storyboard", key=f"hist_story_{index}", use_container_width=True):
-            st.session_state["ifs_story_prompt"] = item["content"][:700]
-            st.session_state["ifs_status_line"] = "History item loaded into storyboard prompt."
-            _rerun()
+        btn_a.button(
+            "Use As Script",
+            key=f"hist_script_{index}",
+            use_container_width=True,
+            on_click=_set_state_value,
+            args=("ifs_script_prompt", item["content"][:700], "History item loaded into script premise."),
+        )
+        btn_b.button(
+            "Use As Storyboard",
+            key=f"hist_story_{index}",
+            use_container_width=True,
+            on_click=_set_state_value,
+            args=("ifs_story_prompt", item["content"][:700], "History item loaded into storyboard prompt."),
+        )
         if btn_c.button("Remove", key=f"hist_remove_{index}", use_container_width=True):
             st.session_state["ifs_history"].pop(index)
             st.session_state["ifs_status_line"] = "History item removed."
