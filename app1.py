@@ -1,8 +1,4 @@
-"""Alternative Streamlit app with optional live API mode.
-
-By default it runs fully offline and deterministic.
-Turn on live mode from the sidebar when an API key is available.
-"""
+"""Alternative Streamlit app using the OpenAI API only."""
 
 from __future__ import annotations
 
@@ -28,10 +24,6 @@ SECRET_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_DEFAULT_CHAT_MODEL",
-    "OPENAI_API_KEY_FALLBACK",
-    "OPENAI_BASE_URL_FALLBACK",
-    "OPENAI_MODEL_FALLBACK",
-    "OPENAI_FALLBACK_OPENAI_MODEL",
 )
 
 
@@ -56,7 +48,6 @@ def _hydrate_env_from_streamlit_secrets() -> None:
             "api_key": "OPENAI_API_KEY",
             "base_url": "OPENAI_BASE_URL",
             "default_chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
-            "fallback_openai_model": "OPENAI_FALLBACK_OPENAI_MODEL",
         }
         for secret_key, env_key in mapping.items():
             value = openai_block.get(secret_key)
@@ -67,15 +58,6 @@ def _hydrate_env_from_streamlit_secrets() -> None:
         value = secrets.get(key)
         if isinstance(value, str) and value.strip() and not os.getenv(key):
             os.environ[key] = value.strip()
-
-    for key, value in secrets.items():
-        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
-            continue
-        if key.startswith(
-            ("OPENAI_API_KEY_FALLBACK_", "OPENAI_BASE_URL_FALLBACK_", "OPENAI_MODEL_FALLBACK_")
-        ) and not os.getenv(key):
-            os.environ[key] = value.strip()
-
 
 _hydrate_env_from_streamlit_secrets()
 
@@ -105,11 +87,11 @@ ISSUE_FLAGS = [
 ]
 
 DEFAULT_CHAT_MODEL = (
-    os.getenv("OPENAI_DEFAULT_CHAT_MODEL", "google/gemini-2.5-flash-lite-preview-09-2025").strip()
-    or "google/gemini-2.5-flash-lite-preview-09-2025"
+    os.getenv("OPENAI_DEFAULT_CHAT_MODEL", "gpt-4.1-mini").strip()
+    or "gpt-4.1-mini"
 )
 DEFAULT_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-DEFAULT_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://ai.hackclub.com/proxy/v1").strip()
+DEFAULT_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip()
 
 
 def seed_for(*parts: str) -> int:
@@ -130,7 +112,7 @@ def _has_runtime_credentials() -> bool:
 
 
 def _extract_content(resp: Any) -> str:
-    """Normalize OpenAI SDK responses and dict fallbacks to plain text."""
+    """Normalize OpenAI SDK responses to plain text."""
 
     def _normalize(content: Any) -> str:
         if content is None:
@@ -393,7 +375,7 @@ def _init_state() -> None:
         "ifs1_palette": PALETTES[0],
         "ifs1_energy": 68,
         "ifs1_pace": 57,
-        "ifs1_live_enabled": _has_runtime_credentials(),
+        "ifs1_live_enabled": True,
         "ifs1_model": DEFAULT_CHAT_MODEL,
         "ifs1_temperature": 0.7,
         "ifs1_script_output": "",
@@ -561,37 +543,26 @@ def _offline_edit_notes(pacing: str, objective: str, issues: Sequence[str], ener
 
 
 def _sidebar() -> None:
-    st.sidebar.markdown("## Runtime Mode")
-    st.sidebar.checkbox("Enable Live API", key="ifs1_live_enabled")
-    if _has_runtime_credentials():
-        st.sidebar.success("Live credentials detected from environment / Streamlit Secrets.")
+    st.sidebar.markdown("## OpenAI Settings")
+    st.sidebar.success("OpenAI credentials loaded from environment / Streamlit Secrets.")
+    if _runtime_base_url():
         st.sidebar.caption(f"Endpoint: {_runtime_base_url()}")
-    else:
-        st.sidebar.warning(
-            "No `OPENAI_API_KEY` found. Add it to Streamlit Secrets or `.env` to enable live mode."
-        )
     st.sidebar.caption("API values are intentionally removed from the UI.")
     st.sidebar.text_input("Model", key="ifs1_model")
     st.sidebar.slider("Creativity", 0.1, 1.2, key="ifs1_temperature")
 
     if st.sidebar.button("Test API Connection", use_container_width=True):
-        if not st.session_state["ifs1_live_enabled"]:
-            st.session_state["ifs1_status"] = "Live API is disabled. Turn it on to test."
-        elif not _has_runtime_credentials():
-            st.session_state["ifs1_status"] = "No API key detected. Add `OPENAI_API_KEY` in secrets or `.env`."
-        else:
-            content, error = _call_live(
-                api_key=_runtime_api_key(),
-                base_url=_runtime_base_url(),
-                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
-                system_prompt="You are a concise assistant.",
-                user_prompt="Reply with: connection ok",
-                temperature=0.2,
-            )
-            if error:
-                st.session_state["ifs1_status"] = f"API test failed. {error}"
-            else:
-                st.session_state["ifs1_status"] = f"API connected. Response: {content[:80]}"
+        content, error = _call_live(
+            api_key=_runtime_api_key(),
+            base_url=_runtime_base_url(),
+            model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
+            system_prompt="You are a concise assistant.",
+            user_prompt="Reply with: connection ok",
+            temperature=0.2,
+        )
+        if error:
+            raise RuntimeError(error)
+        st.session_state["ifs1_status"] = f"API connected. Response: {content[:80]}"
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("## Project Controls")
@@ -605,16 +576,12 @@ def _sidebar() -> None:
 
 
 def _top() -> None:
-    live_mode = bool(st.session_state["ifs1_live_enabled"] and _has_runtime_credentials())
-    mode_label = "Live API Mode" if live_mode else "Offline Mode"
-    mode_class = "live" if live_mode else "offline"
-
     st.markdown(
         f"""
         <div class="hero-card">
-          <span class="mode-pill {mode_class}">{mode_label}</span>
-          <h2>Infinity Film Studio - Offline First Console</h2>
-          <p>Works offline, and uses live generation automatically when API credentials are set.</p>
+          <span class="mode-pill live">OpenAI API</span>
+          <h2>Infinity Film Studio</h2>
+          <p>All generations use OpenAI directly. Missing credentials stop the app at startup.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -657,59 +624,40 @@ def _script_tab() -> None:
         tone = st.session_state["ifs1_tone"]
         energy = int(st.session_state["ifs1_energy"])
         pace = int(st.session_state["ifs1_pace"])
+        system_prompt = "You are a film development copilot. Return clear markdown sections."
+        user_prompt = textwrap.dedent(
+            f"""
+            Project: {st.session_state['ifs1_project_title']}
+            Genre: {genre}
+            Tone: {tone}
+            Energy: {energy}/100
+            Pace: {pace}/100
+            Protagonist: {protagonist}
+            Setting: {setting}
+            Goal: {goal}
+            Obstacle: {obstacle}
 
-        offline_output = _offline_script_pack(
-            genre=genre,
-            tone=tone,
-            protagonist=protagonist,
-            setting=setting,
-            goal=goal,
-            obstacle=obstacle,
-            energy=energy,
-            pace=pace,
+            Produce:
+            1) Logline
+            2) 8-beat outline
+            3) Scene excerpt (~160 words)
+            4) 4 director notes
+            """
+        ).strip()
+        content, error = _call_live(
+            api_key=_runtime_api_key(),
+            base_url=_runtime_base_url(),
+            model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=float(st.session_state["ifs1_temperature"]),
         )
-
-        source = "offline"
-        content = offline_output
-
-        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
-            system_prompt = "You are a film development copilot. Return clear markdown sections."
-            user_prompt = textwrap.dedent(
-                f"""
-                Project: {st.session_state['ifs1_project_title']}
-                Genre: {genre}
-                Tone: {tone}
-                Energy: {energy}/100
-                Pace: {pace}/100
-                Protagonist: {protagonist}
-                Setting: {setting}
-                Goal: {goal}
-                Obstacle: {obstacle}
-
-                Produce:
-                1) Logline
-                2) 8-beat outline
-                3) Scene excerpt (~160 words)
-                4) 4 director notes
-                """
-            ).strip()
-            live_content, error = _call_live(
-                api_key=_runtime_api_key(),
-                base_url=_runtime_base_url(),
-                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=float(st.session_state["ifs1_temperature"]),
-            )
-            if error:
-                st.warning(f"Live call failed. Using offline output. {error}")
-            elif live_content.strip():
-                content = live_content
-                source = "live"
+        if error:
+            raise RuntimeError(error)
 
         st.session_state["ifs1_script_output"] = content
-        st.session_state["ifs1_status"] = f"Script pack generated ({source})."
-        _save_history("Script", source, content)
+        st.session_state["ifs1_status"] = "Script pack generated (live)."
+        _save_history("Script", "live", content)
 
     if st.session_state["ifs1_script_output"]:
         st.markdown(st.session_state["ifs1_script_output"])
@@ -738,44 +686,35 @@ def _storyboard_tab() -> None:
     if submitted:
         style = st.session_state["ifs1_camera_style"]
         palette = st.session_state["ifs1_palette"]
+        system_prompt = "You are a storyboard supervisor. Return practical markdown shot plans."
+        user_prompt = textwrap.dedent(
+            f"""
+            Project: {st.session_state['ifs1_project_title']}
+            Tone: {st.session_state['ifs1_tone']}
+            Camera style: {style}
+            Palette: {palette}
+            Scene: {scene}
+            Frames: {frame_count}
 
-        offline_output = _offline_storyboard(scene=scene, style=style, palette=palette, frame_count=frame_count)
-        source = "offline"
-        content = offline_output
-
-        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
-            system_prompt = "You are a storyboard supervisor. Return practical markdown shot plans."
-            user_prompt = textwrap.dedent(
-                f"""
-                Project: {st.session_state['ifs1_project_title']}
-                Tone: {st.session_state['ifs1_tone']}
-                Camera style: {style}
-                Palette: {palette}
-                Scene: {scene}
-                Frames: {frame_count}
-
-                Output:
-                - Markdown table with columns Frame, Camera, Visual, Sound
-                - Then 3 continuity guardrails
-                """
-            ).strip()
-            live_content, error = _call_live(
-                api_key=_runtime_api_key(),
-                base_url=_runtime_base_url(),
-                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=float(st.session_state["ifs1_temperature"]),
-            )
-            if error:
-                st.warning(f"Live call failed. Using offline output. {error}")
-            elif live_content.strip():
-                content = live_content
-                source = "live"
+            Output:
+            - Markdown table with columns Frame, Camera, Visual, Sound
+            - Then 3 continuity guardrails
+            """
+        ).strip()
+        content, error = _call_live(
+            api_key=_runtime_api_key(),
+            base_url=_runtime_base_url(),
+            model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=float(st.session_state["ifs1_temperature"]),
+        )
+        if error:
+            raise RuntimeError(error)
 
         st.session_state["ifs1_storyboard_output"] = content
-        st.session_state["ifs1_status"] = f"Storyboard generated ({source})."
-        _save_history("Storyboard", source, content)
+        st.session_state["ifs1_status"] = "Storyboard generated (live)."
+        _save_history("Storyboard", "live", content)
 
     if st.session_state["ifs1_storyboard_output"]:
         st.markdown(st.session_state["ifs1_storyboard_output"])
@@ -801,51 +740,36 @@ def _edit_tab() -> None:
     if submitted:
         energy = int(st.session_state["ifs1_energy"])
         pace = int(st.session_state["ifs1_pace"])
+        system_prompt = "You are a senior film editor. Return concise high-leverage notes in markdown."
+        user_prompt = textwrap.dedent(
+            f"""
+            Project: {st.session_state['ifs1_project_title']}
+            Tone: {st.session_state['ifs1_tone']}
+            Pacing: {pacing}
+            Objective: {objective}
+            Energy: {energy}/100
+            Pace: {pace}/100
+            Issues: {', '.join(issues) if issues else 'none'}
 
-        offline_output = _offline_edit_notes(
-            pacing=pacing,
-            objective=objective,
-            issues=issues,
-            energy=energy,
-            pace=pace,
+            Output:
+            - Numbered edit recommendations
+            - A short final Priority section
+            """
+        ).strip()
+        content, error = _call_live(
+            api_key=_runtime_api_key(),
+            base_url=_runtime_base_url(),
+            model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=float(st.session_state["ifs1_temperature"]),
         )
-        source = "offline"
-        content = offline_output
-
-        if st.session_state["ifs1_live_enabled"] and _has_runtime_credentials():
-            system_prompt = "You are a senior film editor. Return concise high-leverage notes in markdown."
-            user_prompt = textwrap.dedent(
-                f"""
-                Project: {st.session_state['ifs1_project_title']}
-                Tone: {st.session_state['ifs1_tone']}
-                Pacing: {pacing}
-                Objective: {objective}
-                Energy: {energy}/100
-                Pace: {pace}/100
-                Issues: {', '.join(issues) if issues else 'none'}
-
-                Output:
-                - Numbered edit recommendations
-                - A short final Priority section
-                """
-            ).strip()
-            live_content, error = _call_live(
-                api_key=_runtime_api_key(),
-                base_url=_runtime_base_url(),
-                model=st.session_state["ifs1_model"].strip() or DEFAULT_CHAT_MODEL,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=float(st.session_state["ifs1_temperature"]),
-            )
-            if error:
-                st.warning(f"Live call failed. Using offline output. {error}")
-            elif live_content.strip():
-                content = live_content
-                source = "live"
+        if error:
+            raise RuntimeError(error)
 
         st.session_state["ifs1_edit_output"] = content
-        st.session_state["ifs1_status"] = f"Edit notes generated ({source})."
-        _save_history("Edit", source, content)
+        st.session_state["ifs1_status"] = "Edit notes generated (live)."
+        _save_history("Edit", "live", content)
 
     if st.session_state["ifs1_edit_output"]:
         st.markdown(st.session_state["ifs1_edit_output"])
@@ -882,7 +806,10 @@ def _history_tab() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Infinity Film Studio Offline+Live Demo", page_icon="🎬", layout="wide")
+    st.set_page_config(page_title="Infinity Film Studio", page_icon="🎬", layout="wide")
+    if not _has_runtime_credentials():
+        st.error("No OpenAI API key configured. Set `OPENAI_API_KEY` in the environment or Streamlit secrets.")
+        st.stop()
     _init_state()
     _inject_styles()
 

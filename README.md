@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/srinivasagudi0/infinity-film-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/srinivasagudi0/infinity-film-studio/actions/workflows/ci.yml)
 
-AI-assisted filmmaking suite covering script writing, video edit guidance, and storyboarding. Ships with a FastAPI backend, React (Vite) frontend, Docker build, and CLI/desktop shells. Defaults to file-based persistence and works without an API key (returns friendly fallbacks), but unlocks full AI features when `OPENAI_API_KEY` is provided.
+AI-assisted filmmaking suite covering script writing, video edit guidance, and storyboarding. Ships with a FastAPI backend, React (Vite) frontend, Docker build, and CLI/desktop shells. The app now runs against the OpenAI API only and requires `OPENAI_API_KEY` at startup.
 
 ## Features
 - Script Copilot chat with session persistence and lightweight memory summarization
@@ -22,7 +22,7 @@ AI-assisted filmmaking suite covering script writing, video edit guidance, and s
 - `docs/` — docs stubs (LICENSE, README, CONTRIBUTING)
 
 ## Quick start (native)
-1) Create env: `cp .env.example .env` and add `OPENAI_API_KEY=` (Hack Club key recommended).  
+1) Create env: `cp .env.example .env` and add `OPENAI_API_KEY=`.  
 2) Install Python deps: `pip install -r requirements.txt`  
 3) Install frontend deps: `cd frontend && npm install`  
 4) Build frontend: `npm run build` (still in `frontend/`)  
@@ -33,9 +33,10 @@ AI-assisted filmmaking suite covering script writing, video edit guidance, and s
 6) Open http://localhost:8000
 
 ## Streamlit deployment (secrets-safe)
-- The Streamlit apps in this repo now read API configuration from `st.secrets` automatically (and fall back to local env vars).
+- The Streamlit app reads OpenAI configuration from `st.secrets` first and then falls back to local env vars.
 - Do not paste API keys into the UI. Add them in Streamlit Cloud under **App settings -> Secrets**.
-- Start from `.streamlit/secrets.toml.example` and paste only the keys you need.
+- Required secret: `OPENAI_API_KEY`
+- Optional secrets: `OPENAI_BASE_URL`, `OPENAI_DEFAULT_CHAT_MODEL`
 
 ## One-click helper
 `./start.sh` will create `.env` if missing, attempt Docker first, and otherwise install deps, build the frontend, and launch the web UI on port 8000.
@@ -65,29 +66,17 @@ docker run --rm -p 8000:8000 --env-file .env infinity-film-studio
 - `POST /api/storyboard/suggest` — storyboard frame suggestion
 
 ## Environment
-- `OPENAI_API_KEY` — optional; without it, responses are friendly fallbacks
-- `OPENAI_BASE_URL` — OpenAI-compatible endpoint (defaults to Hack Club in `.env.example`)
-- `OPENAI_DEFAULT_CHAT_MODEL` — default chat model (cost-optimized default: `google/gemini-2.5-flash-lite-preview-09-2025`)
-- Provider priority is enforced as `Hack Club -> OpenAI -> Offline`
-- `OPENAI_API_KEY_FALLBACK` — optional legacy fallback key
-- `OPENAI_BASE_URL_FALLBACK` — optional legacy fallback endpoint
-- `OPENAI_MODEL_FALLBACK` — optional legacy fallback chat model override
-- `OPENAI_API_KEY_FALLBACK_<N>` — ordered fallback keys (`_1`, `_2`, ...) tried before offline mode
-- `OPENAI_BASE_URL_FALLBACK_<N>` — optional endpoint override for fallback slot `<N>`
-- `OPENAI_MODEL_FALLBACK_<N>` — optional chat model override for fallback slot `<N>`
-- `OPENAI_FALLBACK_OPENAI_MODEL` — OpenAI-safe fallback model used when default model is Gemini-style
+- `OPENAI_API_KEY` — required; the app stops at startup if it is missing
+- `OPENAI_BASE_URL` — optional; only set this if you intentionally want a non-default OpenAI-compatible endpoint
+- `OPENAI_DEFAULT_CHAT_MODEL` — optional; default is `gpt-4.1-mini`
 - `MEDIA_ROOT` / `TEMP_ROOT` — storage paths (default `./media`, `./tmp`)
 - `CORS_ORIGINS` — comma-separated origins (default `*`)
 - `LOG_LEVEL` — info/debug/warning/error (default `info`)
 
-Example `Hack Club -> OpenAI -> Offline` setup:
+Example OpenAI setup:
 ```env
-OPENAI_API_KEY=your_hackclub_key
-OPENAI_BASE_URL=https://ai.hackclub.com/proxy/v1
-OPENAI_DEFAULT_CHAT_MODEL=google/gemini-2.5-flash-lite-preview-09-2025
-OPENAI_API_KEY_FALLBACK_1=your_openai_key
-OPENAI_BASE_URL_FALLBACK_1=https://api.openai.com/v1
-OPENAI_MODEL_FALLBACK_1=gpt-4.1-mini
+OPENAI_API_KEY=your_openai_key
+OPENAI_DEFAULT_CHAT_MODEL=gpt-4.1-mini
 ```
 
 Keep real keys in local `.env` or deployment secret managers only. `.env` is ignored by git in this repo.

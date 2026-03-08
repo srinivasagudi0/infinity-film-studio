@@ -1,9 +1,4 @@
-"""Main Streamlit UI for Infinity Film Studio.
-
-Two runtime modes are supported:
-- Live mode calls the configured API provider chain.
-- Demo mode returns deterministic offline output.
-"""
+"""Main Streamlit UI for Infinity Film Studio using the OpenAI API."""
 
 from __future__ import annotations
 
@@ -21,7 +16,7 @@ import tempfile
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 import streamlit as st
 
@@ -44,10 +39,6 @@ SECRET_ENV_KEYS = (
     "OPENAI_MODEL",
     "OPENAI_CHAT_MODEL",
     "OPENAI_DEFAULT_CHAT_MODEL",
-    "OPENAI_API_KEY_FALLBACK",
-    "OPENAI_BASE_URL_FALLBACK",
-    "OPENAI_MODEL_FALLBACK",
-    "OPENAI_FALLBACK_OPENAI_MODEL",
 )
 
 
@@ -74,7 +65,6 @@ def _hydrate_env_from_streamlit_secrets() -> None:
             "model": "OPENAI_DEFAULT_CHAT_MODEL",
             "chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
             "default_chat_model": "OPENAI_DEFAULT_CHAT_MODEL",
-            "fallback_openai_model": "OPENAI_FALLBACK_OPENAI_MODEL",
         }
         for secret_key, env_key in mapping.items():
             value = openai_block.get(secret_key)
@@ -93,15 +83,6 @@ def _hydrate_env_from_streamlit_secrets() -> None:
     for key in SECRET_ENV_KEYS:
         value = secrets.get(key)
         if isinstance(value, str) and value.strip() and not os.getenv(key):
-            os.environ[key] = value.strip()
-
-    # Allow indexed fallback keys in secrets without enumerating every slot.
-    for key, value in secrets.items():
-        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
-            continue
-        if key.startswith(
-            ("OPENAI_API_KEY_FALLBACK_", "OPENAI_BASE_URL_FALLBACK_", "OPENAI_MODEL_FALLBACK_")
-        ) and not os.getenv(key):
             os.environ[key] = value.strip()
 
 
@@ -195,7 +176,7 @@ STYLE_PRESETS = [
 
 DEFAULT_CHAT_MODEL = os.getenv(
     "OPENAI_DEFAULT_CHAT_MODEL",
-    "google/gemini-2.5-flash-lite-preview-09-2025",
+    "gpt-4.1-mini",
 )
 
 
@@ -267,6 +248,7 @@ WORKSPACE_SETTINGS_KEYS = (
     "ifs_frame_count",
     "ifs_script_prompt",
     "ifs_story_prompt",
+    "ifs_story_prompt_origin",
     "ifs_edit_objective",
     "ifs_rough_cut_notes",
     "ifs_rough_cut_question",
@@ -303,19 +285,17 @@ def _short_seed(seed: str) -> str:
 
 def _provider_name(api_key: str | None, base_url: str | None) -> str:
     base = (base_url or "").lower()
-    if (api_key and api_key.startswith("sk-hc-")) or ("hackclub.com" in base):
-        return "Hack Club"
-    if "openai.com" in base or (api_key and api_key.startswith("sk-")):
+    if not base or "openai.com" in base or (api_key and api_key.startswith("sk-")):
         return "OpenAI"
-    return "Custom"
+    return "OpenAI-compatible"
 
 
 def _provider_chain_text(ai_client: Any) -> str:
     providers = getattr(ai_client, "_providers", None) or []
     if not providers:
-        return "Offline"
+        return "Unconfigured"
     names = [_provider_name(getattr(p, "api_key", None), getattr(p, "base_url", None)) for p in providers]
-    return " -> ".join(names + ["Offline"])
+    return " -> ".join(names)
 
 
 def _rerun() -> None:
@@ -341,6 +321,7 @@ def _init_state() -> None:
         "ifs_frame_count": 6,
         "ifs_script_prompt": CONCEPT_SEEDS[0],
         "ifs_story_prompt": "The protagonist commits to the plan while alarms start rising.",
+        "ifs_story_prompt_origin": "manual",
         "ifs_edit_objective": "narrative clarity and emotional punch",
         "ifs_rough_cut_notes": "",
         "ifs_rough_cut_question": "Where does pacing drop and what should I cut first?",
@@ -374,414 +355,43 @@ def _inject_styles() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
-
-        .stApp {
-            font-family: 'Manrope', 'Segoe UI', sans-serif;
-            color: #eef4ff;
-            background:
-                radial-gradient(circle at 12% 18%, rgba(42, 201, 182, 0.24), transparent 40%),
-                radial-gradient(circle at 88% 10%, rgba(255, 127, 84, 0.18), transparent 30%),
-                radial-gradient(circle at 60% 65%, rgba(118, 106, 255, 0.14), transparent 36%),
-                linear-gradient(150deg, #060f24 0%, #0a1733 46%, #111f45 100%);
-            background-size: 170% 170%;
-            animation: ifs-bg-shift 22s ease infinite;
-        }
-
-        .stApp::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            opacity: 0.22;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-            background-size: 26px 26px;
-            mask-image: radial-gradient(circle at 50% 12%, black 38%, transparent 92%);
-            z-index: 0;
-        }
-
-        header[data-testid="stHeader"] {
-            display: none;
-        }
-
-        [data-testid="stToolbar"] {
-            display: none;
-        }
-
-        [data-testid="stAppViewContainer"] {
-            margin-top: 0;
-        }
-
-        @keyframes ifs-bg-shift {
-            0% { background-position: 0% 20%; }
-            50% { background-position: 100% 80%; }
-            100% { background-position: 0% 20%; }
-        }
-
-        [data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, rgba(7, 19, 45, 0.98) 0%, rgba(10, 26, 60, 0.98) 100%);
-            border-right: 1px solid rgba(171, 196, 255, 0.24);
-        }
-
         .block-container {
-            max-width: 1280px;
-            padding-top: 0.35rem;
-            padding-bottom: 2.6rem;
+            max-width: 1040px;
+            padding-top: 1rem;
+            padding-bottom: 2rem;
         }
 
-        .hero-card,
-        .brief-card,
-        .status-card {
-            border-radius: 20px;
-            border: 1px solid rgba(151, 178, 241, 0.28);
-            background:
-                linear-gradient(145deg, rgba(16, 34, 72, 0.86), rgba(8, 18, 40, 0.92)),
-                radial-gradient(circle at 90% 8%, rgba(255, 153, 110, 0.2), transparent 35%);
-            box-shadow:
-                0 16px 40px rgba(3, 8, 22, 0.45),
-                inset 0 1px 0 rgba(255, 255, 255, 0.09);
-        }
-
-        .hero-card {
-            padding: 1.2rem 1.25rem;
-            margin-bottom: 0.65rem;
-        }
-
-        .hero-grid {
-            display: grid;
-            grid-template-columns: 1.3fr 0.9fr;
-            gap: 0.9rem;
-            align-items: stretch;
-        }
-
-        .hero-stack {
-            display: flex;
-            flex-direction: column;
-            gap: 0.68rem;
-        }
-
-        .hero-title {
-            margin: 0.38rem 0 0;
-            font-family: 'Space Grotesk', 'Manrope', sans-serif;
-            font-size: 1.7rem;
-            line-height: 1.1;
-            color: #f5f9ff;
-        }
-
-        .hero-sub {
-            margin: 0.65rem 0 0;
-            color: rgba(226, 237, 255, 0.9);
-            font-size: 1rem;
-        }
-
-        .hero-meta {
-            margin-top: 0.75rem;
-            color: rgba(215, 229, 255, 0.8);
-            font-size: 0.86rem;
-            letter-spacing: 0.015em;
-        }
-
-        .mode-pill {
-            display: inline-block;
-            border-radius: 999px;
-            padding: 0.2rem 0.7rem;
-            font-size: 0.78rem;
-            letter-spacing: 0.03em;
-            border: 1px solid rgba(188, 211, 255, 0.38);
-            background: rgba(140, 167, 227, 0.2);
-            color: #ebf2ff;
-        }
-
-        .mode-pill.live {
-            border-color: rgba(89, 233, 201, 0.72);
-            background: rgba(44, 201, 171, 0.25);
-            color: #dcfff4;
-        }
-
-        .mode-pill.demo {
-            border-color: rgba(255, 179, 131, 0.68);
-            background: rgba(255, 134, 94, 0.2);
-            color: #ffe9df;
-        }
-
-        .brief-card {
-            padding: 1rem 1.1rem;
-            min-height: 160px;
-            margin-bottom: 0.65rem;
-        }
-
-        .callsheet-card {
-            border-radius: 18px;
-            border: 1px solid rgba(164, 188, 245, 0.24);
-            background:
-                linear-gradient(150deg, rgba(11, 23, 49, 0.82), rgba(8, 16, 34, 0.92)),
-                radial-gradient(circle at 20% 10%, rgba(47, 204, 183, 0.14), transparent 36%);
-            padding: 0.9rem 0.95rem;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        }
-
-        .callsheet-kicker {
-            text-transform: uppercase;
-            letter-spacing: 0.09em;
-            color: rgba(174, 201, 255, 0.78);
-            font-size: 0.72rem;
-            margin: 0;
-        }
-
-        .callsheet-title {
-            margin: 0.22rem 0 0;
-            font-family: 'Space Grotesk', 'Manrope', sans-serif;
-            font-size: 1rem;
-            color: #f6faff;
-        }
-
-        .callsheet-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.45rem 0.7rem;
-            margin-top: 0.68rem;
-        }
-
-        .callsheet-cell {
-            border-radius: 12px;
-            border: 1px solid rgba(154, 181, 241, 0.16);
-            background: rgba(8, 17, 37, 0.48);
-            padding: 0.5rem 0.6rem;
-        }
-
-        .callsheet-cell span {
-            display: block;
-            color: rgba(184, 206, 252, 0.74);
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.07em;
-        }
-
-        .callsheet-cell strong {
-            color: #f0f6ff;
-            font-size: 0.85rem;
-            line-height: 1.3;
-        }
-
-        .chip-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.4rem;
-            margin-top: 0.15rem;
-        }
-
-        .chip {
-            border-radius: 999px;
-            border: 1px solid rgba(167, 192, 245, 0.2);
-            background: rgba(11, 24, 51, 0.56);
-            color: rgba(230, 239, 255, 0.9);
-            padding: 0.28rem 0.58rem;
-            font-size: 0.78rem;
-        }
-
-        .brief-card h4 {
-            margin: 0;
-            font-family: 'Space Grotesk', 'Manrope', sans-serif;
-            color: #f5f9ff;
-        }
-
-        .brief-card p {
-            margin: 0.5rem 0 0;
-            color: rgba(223, 234, 255, 0.86);
-            line-height: 1.5;
-        }
-
-        .status-card {
-            padding: 0.68rem 0.9rem;
-            margin-top: 0.6rem;
-            color: rgba(226, 238, 255, 0.92);
-            font-size: 0.92rem;
-        }
-
-        [data-testid="stMetricValue"] {
-            color: #f9fbff;
-            font-weight: 800;
-            letter-spacing: -0.01em;
-        }
-
-        [data-testid="stMetricLabel"] {
-            color: rgba(219, 233, 255, 0.78);
-        }
-
-        [data-testid="stTabs"] [role="tablist"] {
-            gap: 0.45rem;
-            margin-top: 0.3rem;
-        }
-
-        [data-testid="stTabs"] [role="tab"] {
-            border-radius: 999px;
-            border: 1px solid rgba(168, 191, 245, 0.25);
-            background: rgba(128, 157, 224, 0.14);
-            color: #ebf2ff;
-            padding: 0.46rem 0.92rem;
-        }
-
-        [data-testid="stTabs"] [aria-selected="true"] {
-            background: rgba(46, 201, 180, 0.23);
-            border-color: rgba(98, 236, 207, 0.66);
-            color: #f0fffb;
-        }
-
-        [data-testid="stTextArea"] textarea,
-        [data-testid="stTextInput"] input,
-        [data-baseweb="select"] > div {
-            background: rgba(7, 20, 45, 0.88);
-            color: #eff5ff;
-            border-color: rgba(165, 190, 246, 0.28);
-        }
-
-        [data-testid="stTextArea"] textarea:focus,
-        [data-testid="stTextInput"] input:focus {
-            border-color: rgba(103, 223, 200, 0.88);
-            box-shadow: 0 0 0 1px rgba(103, 223, 200, 0.24);
-        }
-
-        [data-testid="stSidebar"] .stMarkdown p {
-            color: rgba(221, 235, 255, 0.9);
-        }
-
-        .sidebar-note {
-            border-radius: 14px;
-            border: 1px solid rgba(156, 183, 241, 0.22);
-            background: rgba(9, 21, 48, 0.56);
-            padding: 0.7rem 0.8rem;
-            margin: 0.15rem 0 0.7rem;
-            color: rgba(222, 235, 255, 0.92);
-            font-size: 0.84rem;
-            line-height: 1.45;
-        }
-
-        .sidebar-note code {
-            color: #f6fbff;
-            background: rgba(122, 155, 235, 0.12);
-            border-radius: 6px;
-            padding: 0.07rem 0.28rem;
-        }
-
-        .sidebar-section-title {
-            margin: 0.35rem 0 0.25rem;
-            font-family: 'Space Grotesk', 'Manrope', sans-serif;
-            color: #f4f9ff;
-            font-size: 0.95rem;
-            letter-spacing: 0.02em;
-        }
-
-        [data-testid="stSidebar"] .stButton > button,
         .stButton > button {
-            border-radius: 12px;
-            border: 1px solid rgba(167, 191, 248, 0.3);
-            background: linear-gradient(145deg, rgba(33, 52, 92, 0.85), rgba(16, 30, 62, 0.92));
-            color: #edf3ff;
-            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-        }
-
-        .stButton > button:hover {
-            transform: translateY(-1px);
-            border-color: rgba(111, 229, 207, 0.7);
-            box-shadow: 0 8px 18px rgba(7, 15, 35, 0.35);
-        }
-
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(145deg, rgba(255, 95, 103, 0.95), rgba(255, 74, 106, 0.95));
-            border-color: rgba(255, 144, 163, 0.62);
-            color: #fff8fb;
-        }
-
-        .seed-grid {
-            margin: 0.25rem 0 0.35rem;
-        }
-
-        .cue-strip {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.55rem;
-            margin: 0.65rem 0 0.45rem;
-        }
-
-        .cue-card {
-            border-radius: 14px;
-            border: 1px solid rgba(156, 183, 241, 0.18);
-            background:
-                linear-gradient(160deg, rgba(12, 24, 51, 0.8), rgba(8, 18, 38, 0.9));
-            padding: 0.68rem 0.78rem;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        }
-
-        .cue-kicker {
-            color: rgba(178, 202, 252, 0.74);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-size: 0.68rem;
-            margin: 0;
-        }
-
-        .cue-value {
-            color: #f4f9ff;
-            margin-top: 0.24rem;
-            font-weight: 700;
-            line-height: 1.28;
+            border-radius: 8px;
         }
 
         .export-row {
-            border-top: 1px solid rgba(158, 183, 238, 0.24);
+            border-top: 1px solid rgba(128, 128, 128, 0.22);
             margin-top: 0.55rem;
             padding-top: 0.55rem;
         }
 
         .history-item {
-            border-radius: 14px;
-            border: 1px solid rgba(162, 187, 244, 0.24);
-            background: rgba(8, 19, 42, 0.75);
+            border-radius: 10px;
+            border: 1px solid rgba(128, 128, 128, 0.22);
+            background: rgba(127, 127, 127, 0.05);
             padding: 0.76rem 0.88rem;
             margin-bottom: 0.6rem;
         }
 
         .history-item h5 {
             margin: 0;
-            color: #f5f8ff;
             font-size: 0.95rem;
         }
 
         .history-item p {
             margin: 0.3rem 0 0;
-            color: rgba(214, 228, 255, 0.82);
             font-size: 0.84rem;
         }
 
         .mini-label {
-            color: rgba(207, 223, 255, 0.75);
             font-size: 0.82rem;
-            margin-top: -0.15rem;
             margin-bottom: 0.12rem;
-        }
-
-        @media (max-width: 980px) {
-            .hero-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .cue-strip {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-
-        @media (max-width: 640px) {
-            .cue-strip {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .stApp {
-                animation: none;
-            }
         }
         </style>
         """,
@@ -824,6 +434,35 @@ def _set_state_value(key: str, value: Any, status_line: str | None = None) -> No
     st.session_state[key] = value
     if status_line is not None:
         st.session_state["ifs_status_line"] = status_line
+
+
+def _set_story_prompt(value: str, origin: str, status_line: str | None = None) -> None:
+    st.session_state["ifs_story_prompt"] = value
+    st.session_state["ifs_story_prompt_origin"] = origin
+    if status_line is not None:
+        st.session_state["ifs_status_line"] = status_line
+
+
+def _story_prompt_guidance() -> tuple[str, str]:
+    story_prompt = str(st.session_state.get("ifs_story_prompt") or "").strip()
+    script_prompt = str(st.session_state.get("ifs_script_prompt") or "").strip()
+    origin = str(st.session_state.get("ifs_story_prompt_origin") or "manual").strip().lower()
+
+    if not story_prompt:
+        return "warning", "Storyboard input is empty. Type a moment to storyboard or copy in the current script premise."
+
+    if origin == "script":
+        if story_prompt == script_prompt and script_prompt:
+            return "success", "Storyboard input now matches the current script premise. Review it, then click Generate Shot Grid."
+        return "info", "Storyboard input came from the script premise, but it no longer matches the current script text. Copy again if you want the latest version."
+
+    if origin == "concept":
+        return "info", "Storyboard input was synced from the active concept. Tighten the wording here if you want more specific shots."
+
+    if origin == "history":
+        return "info", "Storyboard input was restored from history. Review it, then click Generate Shot Grid."
+
+    return "info", "Storyboard input is ready. Click Generate Shot Grid to turn it into a shot plan."
 
 
 def _sync_workspace_name_from_project() -> None:
@@ -2062,14 +1701,9 @@ def _generate_text(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    fallback: Callable[[], str],
     temperature: float,
 ) -> tuple[str, str]:
-    """Return (content, status) where status is live/demo/fallback."""
-    demo_mode = getattr(ai_client, "api_key", None) in (None, "")
-    if demo_mode:
-        return fallback(), "demo"
-
+    """Return (content, status) for a live OpenAI request."""
     try:
         resp = ai_client.chat(
             model=model,
@@ -2080,233 +1714,112 @@ def _generate_text(
             temperature=temperature,
         )
         return _extract_content(resp), "live"
-    except Exception:
-        return fallback(), "fallback"
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI request failed: {exc}") from exc
 
 
 def _sidebar_controls() -> None:
-    st.sidebar.markdown("## Director Controls")
-    st.sidebar.caption("Tune style, pacing, and generation behavior.")
-    st.sidebar.markdown(
-        """
-        <div class="sidebar-note">
-          API credentials are not entered in this UI. Add <code>OPENAI_API_KEY</code> (and optional fallback keys)
-          in Streamlit Secrets or your local <code>.env</code>.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.sidebar.markdown("<div class='sidebar-section-title'>Look & Tone</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("## Advanced Settings")
+    st.sidebar.caption("The main page keeps the workflow simple. Open these only when you need extra control.")
 
-    preset_names = [preset["name"] for preset in STYLE_PRESETS]
-    st.sidebar.selectbox("Style preset", preset_names, key="ifs_preset")
+    with st.sidebar.expander("Look and pacing", expanded=False):
+        preset_names = [preset["name"] for preset in STYLE_PRESETS]
+        st.selectbox("Style preset", preset_names, key="ifs_preset")
 
-    preset_cols = st.sidebar.columns(2)
-    if preset_cols[0].button("Apply", key="apply_preset", use_container_width=True):
-        _apply_preset(st.session_state["ifs_preset"])
-        _rerun()
-    if preset_cols[1].button("Random", key="random_profile", use_container_width=True):
-        _randomize_profile()
-        _rerun()
-
-    if st.sidebar.button("Shuffle Concept", use_container_width=True):
-        st.session_state["ifs_concept_idx"] = (st.session_state["ifs_concept_idx"] + 1) % len(
-            CONCEPT_SEEDS
-        )
-        st.session_state["ifs_script_prompt"] = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
-        st.session_state["ifs_status_line"] = "Concept seed shuffled."
-        _rerun()
-
-    st.sidebar.markdown("<div class='sidebar-section-title'>Project Profile</div>", unsafe_allow_html=True)
-    st.sidebar.text_input("Project title", key="ifs_project_title")
-    st.sidebar.selectbox("Genre", GENRES, key="ifs_genre")
-    st.sidebar.selectbox("Tone", TONES, key="ifs_tone")
-    st.sidebar.selectbox("Camera style", CAMERA_STYLES, key="ifs_camera_style")
-    st.sidebar.selectbox("Palette", PALETTES, key="ifs_palette")
-    st.sidebar.selectbox("Focus area", FOCUS_AREAS, key="ifs_focus")
-    st.sidebar.slider("Energy", 0, 100, key="ifs_energy")
-    st.sidebar.slider("Pace", 0, 100, key="ifs_pace")
-    st.sidebar.slider("Creativity", 0.1, 1.2, key="ifs_temperature")
-    st.sidebar.markdown("<div class='sidebar-section-title'>Model Routing</div>", unsafe_allow_html=True)
-    st.sidebar.text_input("Model", key="ifs_model")
-
-    st.sidebar.markdown("---")
-    active_preset = _preset_by_name(st.session_state["ifs_preset"])
-    st.sidebar.caption(f"Preset tagline: {active_preset['tagline']}")
-
-
-def _top_section(demo_mode: bool, ai_client: Any) -> None:
-    mode_class = "demo" if demo_mode else "live"
-    mode_text = "Demo Mode" if demo_mode else "Live AI Mode"
-
-    concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
-    brief = _build_director_brief()
-    scores = _compute_scores()
-    now_label = datetime.now().strftime("%a, %b %d • %I:%M %p").replace(" 0", " ")
-    provider_chain = _provider_chain_text(ai_client)
-    project = st.session_state["ifs_project_title"]
-    look_chips = [
-        f"{st.session_state['ifs_genre']} / {st.session_state['ifs_tone']}",
-        st.session_state["ifs_camera_style"],
-        st.session_state["ifs_palette"],
-        f"Focus: {st.session_state['ifs_focus']}",
-    ]
-
-    left, right = st.columns([1.4, 1.0], gap="large")
-    with left:
-        chip_html = "".join(f"<span class='chip'>{html.escape(chip)}</span>" for chip in look_chips)
-        st.markdown(
-            f"""
-            <div class="hero-card">
-              <div class="hero-grid">
-                <div class="hero-stack">
-                  <div>
-                    <span class="mode-pill {mode_class}">{mode_text}</span>
-                    <h2 class="hero-title">Infinity Film Studio Director Console</h2>
-                    <p class="hero-sub">A working creative desk for scripts, shot design, edit notes, and kickoff-ready decks.</p>
-                    <p class="hero-meta">Session clock: {html.escape(now_label)} • Provider route: {html.escape(provider_chain)}</p>
-                  </div>
-                  <div class="chip-row">{chip_html}</div>
-                </div>
-                <div class="callsheet-card">
-                  <p class="callsheet-kicker">Today’s Call Sheet</p>
-                  <p class="callsheet-title">{html.escape(project)}</p>
-                  <div class="callsheet-grid">
-                    <div class="callsheet-cell">
-                      <span>Energy / Pace</span>
-                      <strong>{st.session_state['ifs_energy']}/100 • {st.session_state['ifs_pace']}/100</strong>
-                    </div>
-                    <div class="callsheet-cell">
-                      <span>Frames</span>
-                      <strong>{int(st.session_state['ifs_frame_count'])} planned storyboard frames</strong>
-                    </div>
-                    <div class="callsheet-cell">
-                      <span>Concept Seed</span>
-                      <strong>{html.escape(_short_seed(concept))}</strong>
-                    </div>
-                    <div class="callsheet-cell">
-                      <span>Model</span>
-                      <strong>{html.escape((st.session_state['ifs_model'] or DEFAULT_CHAT_MODEL)[:38])}</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with right:
-        st.markdown(
-            f"""
-            <div class="brief-card">
-              <h4>Live Director Brief</h4>
-              <p>{html.escape(brief)}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown(f"**Project:** `{st.session_state['ifs_project_title']}`")
-    st.markdown(f"**Provider order:** `{provider_chain}`")
-    st.markdown(f"**Active concept:** {concept}")
-
-    st.markdown(
-        f"""
-        <div class="cue-strip">
-          <div class="cue-card"><p class="cue-kicker">Genre</p><div class="cue-value">{html.escape(st.session_state['ifs_genre'])}</div></div>
-          <div class="cue-card"><p class="cue-kicker">Tone</p><div class="cue-value">{html.escape(st.session_state['ifs_tone'])}</div></div>
-          <div class="cue-card"><p class="cue-kicker">Camera Language</p><div class="cue-value">{html.escape(st.session_state['ifs_camera_style'])}</div></div>
-          <div class="cue-card"><p class="cue-kicker">Palette</p><div class="cue-value">{html.escape(st.session_state['ifs_palette'])}</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    metric_cols = st.columns(5)
-    metric_cols[0].metric("Creative", f"{scores['creative']}")
-    metric_cols[1].metric("Tension", f"{scores['tension']}")
-    metric_cols[2].metric("Clarity", f"{scores['clarity']}")
-    metric_cols[3].metric("Visual", f"{scores['visual']}")
-    metric_cols[4].metric("Cohesion", f"{scores['cohesion']}")
-
-    prog_a, prog_b, prog_c = st.columns(3)
-    with prog_a:
-        _progress("Energy", st.session_state["ifs_energy"])
-    with prog_b:
-        _progress("Pace", st.session_state["ifs_pace"])
-    with prog_c:
-        _progress("Profile Balance", max(0, 100 - abs(st.session_state["ifs_energy"] - st.session_state["ifs_pace"])))
-
-    action_cols = st.columns(4)
-    action_cols[0].button(
-        "Boost Energy",
-        key="boost_energy",
-        use_container_width=True,
-        on_click=_set_state_value,
-        args=("ifs_energy", min(100, st.session_state["ifs_energy"] + 6), "Energy boosted by +6."),
-    )
-
-    action_cols[1].button(
-        "Soften Pace",
-        key="soften_pace",
-        use_container_width=True,
-        on_click=_set_state_value,
-        args=("ifs_pace", max(0, st.session_state["ifs_pace"] - 6), "Pace reduced by -6 for controlled cadence."),
-    )
-
-    action_cols[2].button(
-        "Remix Tone",
-        key="remix_tone_top",
-        use_container_width=True,
-        on_click=_set_state_value,
-        args=(
-            "ifs_tone",
-            _rotate_value(TONES, st.session_state["ifs_tone"]),
-            f"Tone remixed to {_rotate_value(TONES, st.session_state['ifs_tone'])}.",
-        ),
-    )
-
-    if action_cols[3].button("Sync Concept", key="sync_concept", use_container_width=True):
-        st.session_state["ifs_script_prompt"] = concept
-        st.session_state["ifs_story_prompt"] = concept
-        st.session_state["ifs_status_line"] = "Concept synced into script and storyboard prompts."
-        _rerun()
-
-    st.markdown(
-        f"""
-        <div class="status-card">
-          Status: {html.escape(st.session_state['ifs_status_line'])}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _script_tab(ai_client: Any, concept: str) -> None:
-    st.subheader("Script Copilot")
-    st.caption("Generate logline, beat map, excerpt, and direction notes.")
-
-    seed_cols = st.columns(len(CONCEPT_SEEDS))
-    for idx, seed in enumerate(CONCEPT_SEEDS):
-        if seed_cols[idx].button(_short_seed(seed), key=f"script_seed_{idx}", use_container_width=True):
-            st.session_state["ifs_concept_idx"] = idx
-            st.session_state["ifs_script_prompt"] = seed
-            st.session_state["ifs_status_line"] = "Loaded new concept into script prompt."
+        preset_cols = st.columns(2)
+        if preset_cols[0].button("Apply preset", key="apply_preset", use_container_width=True):
+            _apply_preset(st.session_state["ifs_preset"])
             _rerun()
+        if preset_cols[1].button("Randomize", key="random_profile", use_container_width=True):
+            _randomize_profile()
+            _rerun()
+
+        st.selectbox("Genre", GENRES, key="ifs_genre")
+        st.selectbox("Tone", TONES, key="ifs_tone")
+        st.selectbox("Camera style", CAMERA_STYLES, key="ifs_camera_style")
+        st.selectbox("Palette", PALETTES, key="ifs_palette")
+        st.selectbox("Focus area", FOCUS_AREAS, key="ifs_focus")
+        st.slider("Energy", 0, 100, key="ifs_energy")
+        st.slider("Pace", 0, 100, key="ifs_pace")
+        st.slider("Creativity", 0.1, 1.2, key="ifs_temperature")
+
+        active_preset = _preset_by_name(st.session_state["ifs_preset"])
+        st.caption(f"Preset: {active_preset['tagline']}")
+
+    with st.sidebar.expander("Model", expanded=False):
+        st.text_input("Model", key="ifs_model")
+        st.caption("Set `OPENAI_API_KEY` in Streamlit secrets or `.env` to run the app.")
+
+
+def _top_section(ai_client: Any) -> None:
+    concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
+    provider_chain = _provider_chain_text(ai_client)
+    st.title("Infinity Film Studio")
+    st.caption("Simple workflow: set a project, write a premise, copy it to storyboard, then generate what you need with OpenAI.")
+
+    st.text_input("Project title", key="ifs_project_title")
+
+    info_cols = st.columns(2)
+    info_cols[0].markdown("**Mode:** OpenAI API")
+    info_cols[0].markdown(f"**Provider:** `{provider_chain}`")
+    info_cols[1].markdown(
+        f"**Current style:** {st.session_state['ifs_genre']} / {st.session_state['ifs_tone']} / {st.session_state['ifs_focus']}"
+    )
+    info_cols[1].markdown(f"**Camera / palette:** {st.session_state['ifs_camera_style']} / {st.session_state['ifs_palette']}")
+
+    st.markdown("**Starting concept**")
+    st.write(concept)
+
+    action_cols = st.columns(3)
+    if action_cols[0].button("Shuffle Concept", key="shuffle_concept_top", use_container_width=True):
+        st.session_state["ifs_concept_idx"] = (st.session_state["ifs_concept_idx"] + 1) % len(CONCEPT_SEEDS)
+        st.session_state["ifs_status_line"] = "Concept changed. Load it into Script if you want to use it."
+        _rerun()
+
+    if action_cols[1].button("Load Concept into Script", key="load_concept_script", use_container_width=True):
+        st.session_state["ifs_script_prompt"] = concept
+        st.session_state["ifs_status_line"] = "Active concept copied into the script premise."
+        _rerun()
+
+    if action_cols[2].button("Use Concept in Both", key="sync_concept", use_container_width=True):
+        st.session_state["ifs_script_prompt"] = concept
+        _set_story_prompt(concept, "concept", "Active concept copied into script and storyboard.")
+        _rerun()
+
+    st.info(f"Status: {st.session_state['ifs_status_line']}")
+
+
+def _script_tab(ai_client: Any) -> None:
+    st.subheader("Script")
+    st.caption("Write a premise and generate a script pack.")
 
     st.text_area("Scene premise", key="ifs_script_prompt", height=120)
 
+    script_premise = str(st.session_state["ifs_script_prompt"] or "").strip()
+    story_prompt = str(st.session_state["ifs_story_prompt"] or "").strip()
+    story_matches_script = bool(script_premise) and story_prompt == script_premise
+
     controls = st.columns(3)
     generate = controls[0].button("Generate Script Pack", type="primary", use_container_width=True)
-    if controls[1].button("Push to Storyboard", key="push_story", use_container_width=True):
-        st.session_state["ifs_story_prompt"] = st.session_state["ifs_script_prompt"]
-        st.session_state["ifs_status_line"] = "Script premise pushed to storyboard tab."
+    if controls[1].button(
+        "Copy Premise to Storyboard",
+        key="push_story",
+        use_container_width=True,
+        help="Copies the current scene premise into the storyboard input. It does not generate a shot grid.",
+    ):
+        _set_story_prompt(st.session_state["ifs_script_prompt"], "script", "Scene premise copied to storyboard input.")
         _rerun()
     if controls[2].button("Clear Script Output", key="clear_script", use_container_width=True):
         st.session_state["ifs_script_output"] = ""
         st.session_state["ifs_status_line"] = "Script output cleared."
         _rerun()
+
+    if not script_premise:
+        st.caption("Add a scene premise above to generate a script pack or copy it into Storyboard.")
+    elif story_matches_script:
+        st.caption("Storyboard input already matches this scene premise. Open Storyboard and click Generate Shot Grid to create frames.")
+    else:
+        st.caption("Copy Premise to Storyboard only fills the storyboard input. Shot generation happens separately on the Storyboard tab.")
 
     if generate:
         project = st.session_state["ifs_project_title"]
@@ -2341,20 +1854,14 @@ def _script_tab(ai_client: Any, concept: str) -> None:
             """
         ).strip()
 
-        fallback = lambda: _fallback_script_pack(project, premise, genre, tone, energy, pace, focus)
-
         with st.spinner("Generating script pack..."):
             content, status = _generate_text(
                 ai_client,
                 model,
                 system_prompt,
                 user_prompt,
-                fallback,
                 temperature,
             )
-
-        if status == "fallback":
-            st.info("Live model call failed, so an offline fallback was generated.")
 
         st.session_state["ifs_script_output"] = content
         st.session_state["ifs_status_line"] = f"Script pack generated ({status})."
@@ -2374,26 +1881,39 @@ def _script_tab(ai_client: Any, concept: str) -> None:
 
 
 def _storyboard_tab(ai_client: Any) -> None:
-    st.subheader("Storyboard Engine")
-    st.caption("Convert a moment into a shot-by-shot visual plan.")
+    st.subheader("Storyboard")
+    st.caption("Turn one moment into a simple shot list.")
+
+    guidance_type, guidance_text = _story_prompt_guidance()
+    getattr(st, guidance_type)(guidance_text)
 
     st.text_area("Moment to storyboard", key="ifs_story_prompt", height=110)
     st.slider("Frames", 4, 12, key="ifs_frame_count")
 
+    script_premise = str(st.session_state["ifs_script_prompt"] or "").strip()
+    story_prompt = str(st.session_state["ifs_story_prompt"] or "").strip()
+    story_matches_script = bool(script_premise) and story_prompt == script_premise
+    copy_label = "Storyboard Already Matches Script" if story_matches_script else "Copy Current Script Premise"
+
     col_a, col_b, col_c = st.columns(3)
-    col_a.button(
-        "Use Script Premise",
+    if col_a.button(
+        copy_label,
         key="use_script_premise",
         use_container_width=True,
-        on_click=_set_state_value,
-        args=(
-            "ifs_story_prompt",
-            st.session_state["ifs_script_prompt"],
-            "Storyboard prompt loaded from script premise.",
-        ),
-    )
+        disabled=not script_premise or story_matches_script,
+        help="Copies the current scene premise from Script Copilot into the storyboard input above. It does not generate frames.",
+    ):
+        _set_story_prompt(st.session_state["ifs_script_prompt"], "script", "Storyboard input replaced with the current script premise.")
+        _rerun()
     focus_override = col_b.selectbox("Shot Focus", FOCUS_AREAS, index=FOCUS_AREAS.index(st.session_state["ifs_focus"]))
     generate = col_c.button("Generate Shot Grid", type="primary", use_container_width=True)
+
+    if not script_premise:
+        st.caption("No script premise is available to copy yet. Write one in Script Copilot first.")
+    elif story_matches_script:
+        st.caption("This storyboard input already matches the current script premise. Click Generate Shot Grid when you're ready.")
+    else:
+        st.caption("Need the latest script text here? Use Copy Current Script Premise, then Generate Shot Grid.")
 
     if generate:
         project = st.session_state["ifs_project_title"]
@@ -2425,20 +1945,14 @@ def _storyboard_tab(ai_client: Any) -> None:
             """
         ).strip()
 
-        fallback = lambda: _fallback_storyboard(scene, style, palette, frame_count, tone, focus_override)
-
         with st.spinner("Generating storyboard..."):
             content, status = _generate_text(
                 ai_client,
                 model,
                 system_prompt,
                 user_prompt,
-                fallback,
                 temperature,
             )
-
-        if status == "fallback":
-            st.info("Live model call failed, so an offline fallback was generated.")
 
         st.session_state["ifs_storyboard_output"] = content
         st.session_state["ifs_status_line"] = f"Storyboard generated ({status})."
@@ -2594,20 +2108,14 @@ def _edit_tab(ai_client: Any) -> None:
             """
         ).strip()
 
-        fallback = lambda: _fallback_edit_notes(pacing, objective, issues, energy, pace, focus)
-
         with st.spinner("Generating edit notes..."):
             content, status = _generate_text(
                 ai_client,
                 model,
                 system_prompt,
                 user_prompt,
-                fallback,
                 temperature,
             )
-
-        if status == "fallback":
-            st.info("Live model call failed, so an offline fallback was generated.")
 
         st.session_state["ifs_edit_output"] = content
         st.session_state["ifs_status_line"] = f"Edit notes generated ({status})."
@@ -2661,21 +2169,6 @@ def _edit_tab(ai_client: Any) -> None:
                 notes=cut_notes,
                 file_name=clip_name or "rough-cut",
             )
-            fallback_content = _fallback_rough_cut_review(
-                project=project,
-                objective=objective,
-                pacing=pacing,
-                runtime_target=runtime_target,
-                tone=tone,
-                focus=focus,
-                energy=energy,
-                pace=pace,
-                issues=issues,
-                metadata=clip_meta,
-                rows=rows,
-                review_question=review_question,
-            )
-
             segment_preview = ", ".join(row["timestamp"] for row in rows[:8])
             transcript_excerpt = cut_notes.strip()[:3000] if cut_notes.strip() else "No transcript/notes provided."
             metadata_summary = {
@@ -2734,12 +2227,8 @@ def _edit_tab(ai_client: Any) -> None:
                     model,
                     system_prompt,
                     user_prompt,
-                    lambda: fallback_content,
                     temperature,
                 )
-
-            if status == "fallback":
-                st.info("Live model call failed, so a local timestamped rough-cut review was generated.")
 
             st.session_state["ifs_rough_cut_output"] = content
             st.session_state["ifs_rough_cut_timeline_rows"] = rows
@@ -2885,28 +2374,14 @@ def _deck_tab(ai_client: Any) -> None:
             """
         ).strip()
 
-        fallback = lambda: _fallback_deck(
-            project,
-            brief,
-            script_content,
-            storyboard_content,
-            edit_content,
-            rough_cut_content,
-            rough_cut_rows,
-        )
-
         with st.spinner("Generating director deck..."):
             content, status = _generate_text(
                 ai_client,
                 model,
                 system_prompt,
                 user_prompt,
-                fallback,
                 temperature,
             )
-
-        if status == "fallback":
-            st.info("Live model call failed, so an offline fallback was generated.")
 
         st.session_state["ifs_deck_output"] = content
         st.session_state["ifs_status_line"] = f"Director deck generated ({status})."
@@ -3228,18 +2703,18 @@ def _history_tab() -> None:
 
         btn_a, btn_b, btn_c = st.columns(3)
         btn_a.button(
-            "Use As Script",
+            "Copy to Script Premise",
             key=f"hist_script_{index}",
             use_container_width=True,
             on_click=_set_state_value,
             args=("ifs_script_prompt", item["content"][:700], "History item loaded into script premise."),
         )
         btn_b.button(
-            "Use As Storyboard",
+            "Copy to Storyboard Input",
             key=f"hist_story_{index}",
             use_container_width=True,
-            on_click=_set_state_value,
-            args=("ifs_story_prompt", item["content"][:700], "History item loaded into storyboard prompt."),
+            on_click=_set_story_prompt,
+            args=(item["content"][:700], "history", "History item loaded into storyboard prompt."),
         )
         if btn_c.button("Remove", key=f"hist_remove_{index}", use_container_width=True):
             st.session_state["ifs_history"].pop(index)
@@ -3249,31 +2724,30 @@ def _history_tab() -> None:
 
 def main() -> None:
     st.set_page_config(
-        page_title="Infinity Film Studio Director Console",
+        page_title="Infinity Film Studio",
         page_icon="🎬",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
     _init_state()
     _inject_styles()
 
-    ai_client = _get_ai_client()
-    demo_mode = getattr(ai_client, "api_key", None) in (None, "")
+    try:
+        ai_client = _get_ai_client()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        st.stop()
 
-    # Render top controls first so their state updates happen before sidebar
-    # widgets with the same keys are instantiated in this run.
-    _top_section(demo_mode, ai_client)
+    _top_section(ai_client)
     _sidebar_controls()
 
-    concept = CONCEPT_SEEDS[st.session_state["ifs_concept_idx"]]
-
     tab_script, tab_storyboard, tab_edit, tab_deck, tab_workspace, tab_history = st.tabs(
-        ["Script Copilot", "Storyboard", "Edit Review", "Director Deck", "Workspace", "History"]
+        ["Script", "Storyboard", "Edit", "Deck", "Workspace", "History"]
     )
 
     with tab_script:
-        _script_tab(ai_client, concept)
+        _script_tab(ai_client)
 
     with tab_storyboard:
         _storyboard_tab(ai_client)

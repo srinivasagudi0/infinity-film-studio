@@ -1,4 +1,6 @@
-"""Tests for ordered API fallback in OpenAIClient."""
+"""Tests for strict OpenAI client behavior."""
+
+import pytest
 
 from infinity_film_studio.ai import openai_client as openai_client_module
 from infinity_film_studio.ai.openai_client import OpenAIClient
@@ -45,26 +47,24 @@ class _FakeOpenAI:
         self.embeddings = _FakeEmbeddings(api_key)
 
 
-def test_chat_uses_fallback_provider_and_model_override(monkeypatch):
+def test_chat_uses_primary_openai_client(monkeypatch):
     monkeypatch.setattr(openai_client_module, "OpenAI", _FakeOpenAI)
 
     client = OpenAIClient(
-        api_key="bad-key",
+        api_key="sk-openai-primary",
         base_url="https://api.openai.com/v1",
-        fallback_configs=[
-            {
-                "api_key": "hackclub-key",
-                "base_url": "https://ai.hackclub.com/proxy/v1",
-                "chat_model_override": "google/gemini-3-flash-preview",
-            }
-        ],
+        default_chat_model="gpt-4.1-mini",
     )
 
     response = client.chat(
         messages=[{"role": "user", "content": "hello"}],
-        model="gpt-4.1-mini",
     )
 
-    assert response["model"] == "google/gemini-3-flash-preview"
-    assert client.api_key == "hackclub-key"
-    assert client.base_url == "https://ai.hackclub.com/proxy/v1"
+    assert response["model"] == "gpt-4.1-mini"
+    assert client.api_key == "sk-openai-primary"
+    assert client.base_url == "https://api.openai.com/v1"
+
+
+def test_client_requires_api_key():
+    with pytest.raises(RuntimeError, match="Missing OpenAI API key"):
+        OpenAIClient(api_key="")
