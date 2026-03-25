@@ -1,113 +1,83 @@
-# Infinity Film Studio
+# 🎬 Infinity Film Studio
 
-[![CI](https://github.com/srinivasagudi0/infinity-film-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/srinivasagudi0/infinity-film-studio/actions/workflows/ci.yml)
+An AI-powered filmmaking tool that helps with scripts, editing ideas, and storyboards.Built with FastAPI + React + Streamlit, and powered by OpenAI.
 
-AI-assisted filmmaking suite covering script writing, video edit guidance, and storyboarding. Ships with a FastAPI backend, React (Vite) frontend, Docker build, and CLI/desktop shells. The app now runs against the OpenAI API only and requires `OPENAI_API_KEY` at startup.
+## 🧠 What It Does
 
-## Features
-- Script Copilot chat with session persistence and lightweight memory summarization
-- One-shot scene, storyboard frame, and edit suggestions
-- Rough-cut analyzer in Streamlit with timestamped edit flags, metadata probing, and CSV/JSON timeline exports
-- Persistent Streamlit project workspace with local save/load version history, compare diffs, and exports (Markdown bundle, Fountain, CSV shot list, PDF deck)
-- Video review endpoint that accepts uploads and returns AI notes (uses ffmpeg metadata when available)
-- Web UI (React) plus CLI and Tkinter desktop placeholders
-- Docker image that serves the built frontend + API on port 8000
-- File-based JSON persistence under `media/` with temp storage in `tmp/`
+- Helps you write scripts using AI chat
+- Gives scene ideas, storyboard frames, and edit suggestions
+- Lets you upload videos and get feedback
+- Keeps your projects saved with history
+- Works across web UI, CLI, and basic desktop setup
 
-## Project layout
-- `Launcher.py` — entry that wires settings + routes to CLI / desktop / web
-- `backend/` — FastAPI app, OpenAI client wrapper, domain controllers, services, tests
-- `frontend/` — Vite + React single page shell (served statically when built)
-- `ScriptWriter.py`, `VideoEditor.py`, `StoryBoard.py` — lightweight module shims for external embedding
-- `docs/` — docs stubs (LICENSE, README, CONTRIBUTING)
+## ⚙️ Features
+- 💬 Script Copilot (chat with memory)
+- 🎥 Scene + storyboard suggestions
+- ✂️ Video edit recommendations
+- 📊 Rough-cut analyzer (timestamps + export options)
+- 💾 Save/load projects with version history
+- 📤 Export to Markdown, PDF, CSV, etc.
+- 🌐 Web UI + CLI + desktop support
+- 🐳 Docker support for easy setup
 
-## Quick start (native)
-1) Create env: `cp .env.example .env` and add `OPENAI_API_KEY=`.  
-2) Install Python deps: `pip install -r requirements.txt`  
-3) Install frontend deps: `cd frontend && npm install`  
-4) Build frontend: `npm run build` (still in `frontend/`)  
-5) Run backend (serves API + built frontend):  
-   ```bash
-   python Launcher.py --ui web --host 0.0.0.0 --port 8000
-   ```  
-6) Open http://localhost:8000
+## 🗂️ Project Structure
+- backend/ → FastAPI + AI logic
+- frontend/ → React (Vite) UI
+- Launcher.py → main entry point
+- docs/ → documentation
+- Extra modules for scripts, video, storyboard
 
-## Streamlit deployment (secrets-safe)
-- The Streamlit app reads OpenAI configuration from `st.secrets` first and then falls back to local env vars.
-- Do not paste API keys into the UI. Add them in Streamlit Cloud under **App settings -> Secrets**.
-- Required secret: `OPENAI_API_KEY`
-- Optional secrets: `OPENAI_BASE_URL`, `OPENAI_DEFAULT_CHAT_MODEL`
+## ⚡ Quick Start
+```
+pip install -r requirements.txt
 
-## One-click helper
-`./start.sh` will create `.env` if missing, attempt Docker first, and otherwise install deps, build the frontend, and launch the web UI on port 8000.
+export OPENAI_API_KEY == "sk-your-key-here"
 
-## Docker
-```bash
-docker build -t infinity-film-studio .
-docker run --rm -p 8000:8000 --env-file .env infinity-film-studio
+streamlit run streamlit_run.py
 ```
 
-## Development
-- Frontend dev server: `cd frontend && npm run dev` (set `VITE_API_BASE` if backend not on http://localhost:8000)
-- Tests: `pytest -q`
-- Make targets: `make install`, `make build-frontend`, `make serve-backend`, `make test`
+## 🔐 Setup
+Required:
 
-## API surface (paths relative to backend root, default host 8000)
-- `GET /api/health` — status
-- `GET /api/config` — environment/config info
-- `POST /api/script/suggest` — scene suggestion
-- `POST /api/script/chat` — ChatGPT-like script copilot (`session_id`, `message`)
-- `POST /api/script/chat/new` — create chat session
-- `GET /api/script/chats` — list chat sessions
-- `GET /api/script/chat/{session_id}` — fetch chat
-- `DELETE /api/script/chat/{session_id}` — delete chat
-- `POST /api/video/suggest` — edit suggestion
-- `POST /api/video/review` — upload video + optional `question` for AI review
-- `POST /api/storyboard/suggest` — storyboard frame suggestion
+OPENAI_API_KEY=your_key
 
-## Environment
-- `OPENAI_API_KEY` — required; the app stops at startup if it is missing
-- `OPENAI_BASE_URL` — optional; only set this if you intentionally want a non-default OpenAI-compatible endpoint
-- `OPENAI_DEFAULT_CHAT_MODEL` — optional; default is `gpt-4.1-mini`
-- `MEDIA_ROOT` / `TEMP_ROOT` — storage paths (default `./media`, `./tmp`)
-- `CORS_ORIGINS` — comma-separated origins (default `*`)
-- `LOG_LEVEL` — info/debug/warning/error (default `info`)
+Optional:
+- model selection
+- storage paths
+- logging level
 
-Example OpenAI setup:
-```env
-OPENAI_API_KEY=your_openai_key
-OPENAI_DEFAULT_CHAT_MODEL=gpt-4.1-mini
-```
+## ▶️ Run Modes
+- CLI → simple usage
+- Web UI → full experience
+- Streamlit → analysis tools
 
-Keep real keys in local `.env` or deployment secret managers only. `.env` is ignored by git in this repo.
-For Streamlit Cloud, put the same keys in Secrets instead of committing them.
+## 🧠 API (basic)
+- /api/script/chat → script assistant
+- /api/video/review → video feedback
+- /api/storyboard/suggest → storyboard ideas
 
-## Notes
-- ffmpeg is installed in the Docker image; locally, installing `ffmpeg` + `ffmpeg-python` enables richer metadata.
-- If `ffprobe` is installed locally, the Streamlit rough-cut analyzer auto-detects clip duration/resolution/FPS. Otherwise it falls back to the manual duration field.
-- File persistence uses JSON stores under `media/` (scripts, chats, media assets, storyboards).
+## 📦 Storage
+- Uses JSON files in media/
+- Temp files in tmp/
+- Saves scripts, chats, and assets
 
-Enjoy exploring the studio!
+## ⚠️ Notes
+- Needs OpenAI key to run fully
+- Works with ffmpeg for better video analysis
+- Without AI → limited functionality
 
-## Contributing
-See [CONTRIBUTING](CONTRIBUTING.md) for branch workflow, testing, and review expectations. Please use the provided PR template and issue forms.
+## 📜 License
+MIT License — free to use and modify
 
-## Code of Conduct
-We adhere to the [Contributor Covenant](CODE_OF_CONDUCT.md). Be kind, be respectful.
+## 🙌 Credits
+- FastAPI
+- React
+* OpenAI
+Inspired by tools like Figma and creative platforms.
 
-## Security
-Report vulnerabilities to [security@infinityfilmstudio.com](mailto:security@infinityfilmstudio.com) as outlined in [SECURITY](SECURITY.md). Please avoid filing public issues for security concerns.
+## 🏁 Final
+Still improving.More features coming.
 
-## License
-MIT — see [LICENSE](LICENSE).
+PEACE ✌️
 
 
-You are free to use, modify, and distribute this software under the terms of the MIT License.
-
-## Acknowledgements
-- Built with FastAPI, REACT, OpenAI API
-- Inspired by the creativity of Canvas, Figma, and other collaborative tools. 
-- Thanks to all future contributors and users for helping shape this project!
-
-
-PEACE. ✌️
